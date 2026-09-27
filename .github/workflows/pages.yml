@@ -93,7 +93,7 @@ jobs:
           node bin/agentgate.mjs check --root examples/action-verify --policy examples/action-verify/agentgate.policy.json --format html --out dist/report-sample.html || echo "expected: the sample is meant to fail the check"
           test -s dist/report-sample.html || echo "no sample report was written"
       - uses: actions/configure-pages@v5
-      - uses: actions/upload-pages-artifact@v3
+      - uses: actions/upload-pages-artifact@v5
         with:
           path: dist
   deploy:
