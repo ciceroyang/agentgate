@@ -38,7 +38,7 @@ jobs:
       - name: Pack once and accept the delivered package
         run: node scripts/pack-release.mjs --out-dir "$RUNNER_TEMP/agentgate-package"
       - name: Retain the exact accepted package and its report
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: verified-package
           path: |
@@ -47,7 +47,7 @@ jobs:
             ${{ runner.temp }}/agentgate-package/release.json
       - name: Generate our own SBOM before publishing
         run: node scripts/sbom.mjs --out sbom/agentgate.cdx.json
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v7
         with:
           name: sbom
           path: sbom/
