@@ -16,7 +16,8 @@ function run(args) {
 test("this repository passes its own release check offline", function () {
   const out = run(["--skip-tests"])
   assert.equal(out.status, 0, out.stdout + out.stderr)
-  assert.match(out.stdout, /可以发布/)
+  assert.match(out.stdout, /发布预检通过/)
+  assert.match(out.stdout, /仍须安装包验收、CI 发布与公开回读/)
   assert.equal(out.stdout.indexOf("FAIL"), -1, out.stdout)
 })
 

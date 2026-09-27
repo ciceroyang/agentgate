@@ -1,6 +1,6 @@
 import test from "node:test"
 import assert from "node:assert/strict"
-import { discover, renderText, packageOf, hostOf, transportOf, serversIn } from "../src/discover.mjs"
+import { discover, renderText, renderInventory, packageOf, hostOf, transportOf, serversIn } from "../src/discover.mjs"
 import { candidateSources } from "../src/known-configs.mjs"
 import { parseInventory } from "../../inventory/src/inventory.mjs"
 
@@ -66,13 +66,74 @@ test("a config that cannot be parsed is reported, not skipped, and does not hide
   assert.equal(report.sources.filter(function (s) { return s.reason === "invalid-json" })[0].status, "unparsed")
 })
 
-test("a TOML config is listed as unparsed rather than ignored", function () {
-  const files = { "/home/tester/.codex/config.toml": "[mcp_servers.x]\ncommand = 'x'\n" }
+test("Codex TOML discovers MCP tables without reading nested env as a server", function () {
+  const secret = "sk-live-abcdefghijklmnopqrstuvwxyz012345"
+  const files = { "/home/tester/.codex/config.toml": [
+    'title = """', '[mcp_servers.decoy]', '"""',
+    '[mcp_servers."real.server"]', "command = 'npx'", "args = [", "  '-y',", "  '@scope/pkg@1.2.3', # pinned package", `  '--token=${secret}'`, "]",
+    `env = { KEY = '${secret}' }`,
+    '[mcp_servers."real.server".env]', `KEY = '${secret}'`,
+    '[mcp_servers.disabled]', "command = 'npx'", "args = ['disabled-pkg@2.0.0']", "enabled = false",
+    '[mcp_servers.remote]', `url = 'https://user:${secret}@example.com/sse?token=${secret}'`,
+  ].join("\n") }
   const report = run(files)
-  assert.equal(report.incomplete, true)
+  assert.equal(report.incomplete, false)
   assert.equal(report.sources.length, 1)
-  assert.equal(report.sources[0].reason, "toml-not-supported")
-  assert.equal(report.servers.length, 0)
+  assert.equal(report.sources[0].status, "read")
+  assert.equal(report.sources[0].servers, 3)
+  assert.equal(report.servers.length, 3)
+  assert.equal(report.counts.serversDisabled, 1)
+  assert.equal(report.counts.serversExported, 2)
+  assert.equal(report.counts.exportedPackagesUnknown, 1)
+  assert.equal(report.counts.exportedVersionsUnknown, 1)
+  assert.equal(report.servers.find(s => s.name === "real.server").package, "@scope/pkg")
+  assert.equal(report.servers.find(s => s.name === "real.server").version, "1.2.3")
+  assert.equal(report.servers.find(s => s.name === "real.server").identityStatus, "declared-package-version")
+  assert.equal(report.servers.find(s => s.name === "remote").host, "example.com")
+  assert.equal(report.servers.find(s => s.name === "remote").identityStatus, "remote-host-only")
+  assert.equal(report.servers.find(s => s.name === "disabled").enabled, false)
+  assert.equal(renderText(report).includes("disabled-pkg"), false)
+  const inventory = parseInventory(renderInventory(report))
+  assert.equal(inventory.length, 2)
+  assert.equal(JSON.stringify(report).includes(secret), false)
+  assert.equal(renderInventory(report).includes(secret), false)
+})
+
+test("unsupported or malformed Codex MCP TOML stays incomplete", function () {
+  const unsupported = run({ "/home/tester/.codex/config.toml": "[mcp_servers]\nfoo = { command = 'npx' }\n" })
+  assert.equal(unsupported.incomplete, true)
+  assert.equal(unsupported.sources[0].reason, "unsupported-mcp-toml")
+  const malformed = run({ "/home/tester/.codex/config.toml": "[mcp_servers.foo]\nargs = ['unfinished'\n" })
+  assert.equal(malformed.incomplete, true)
+  assert.equal(malformed.sources[0].reason, "invalid-toml")
+  assert.equal(malformed.servers.length, 0)
+  const implicit = run({ "/home/tester/.codex/config.toml": "[mcp_servers.foo.env]\nTOKEN = 'secret'\n" })
+  assert.equal(implicit.sources[0].reason, "unsupported-mcp-toml")
+})
+
+test("an opaque local command remains an unresolved identity and version", function () {
+  const report = run({ "/home/tester/.codex/config.toml": "[mcp_servers.'custom@1.2.3']\ncommand = '/opt/company/mcp-server'\nargs = ['--token=private']\n" })
+  assert.equal(report.incomplete, false, "the config was parsed, even though identity was not")
+  assert.equal(report.servers[0].identityStatus, "unresolved")
+  assert.equal(report.servers[0].package, null)
+  assert.equal(report.servers[0].version, null)
+  const roundTrip = parseInventory(renderText(report))
+  assert.equal(roundTrip[0].name, "custom@1.2.3")
+  assert.equal(roundTrip[0].package, null)
+  assert.equal(roundTrip[0].version, null)
+  assert.equal(JSON.stringify(report).includes("private"), false)
+})
+
+test("explicitly disabled JSON servers are retained for audit but not exported", function () {
+  const files = { "/work/repo/.mcp.json": JSON.stringify({ mcpServers: {
+    off: { command: "npx", args: ["off-pkg@1.0.0"], enabled: false },
+    on: { command: "npx", args: ["on-pkg@1.0.0"] },
+  } }) }
+  const report = run(files)
+  assert.equal(report.servers.length, 2)
+  assert.equal(report.counts.serversDisabled, 1)
+  assert.equal(renderText(report).trim(), "npm:on-pkg@1.0.0")
+  assert.equal(parseInventory(renderInventory(report)).length, 1)
 })
 
 test("a file that cannot be read is reported as unreadable", function () {

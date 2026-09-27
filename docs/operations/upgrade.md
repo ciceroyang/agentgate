@@ -10,18 +10,23 @@ see that it worked. “Nothing to do” is an answer, and it is written out rath
 The rules behind all of this — what a version identifier promises, what may change inside one, how
 a breaking change is announced — are in [compatibility.md](../spec/compatibility.md).
 
-## Unreleased: trust hardening
+## 0.6.0
 
-These changes are local and are not included in the published version merely because the source
-still reports the same package version. Assign a new release version under the compatibility
-policy before publishing; do not overwrite an existing registry release.
+The 0.5.0 package does not contain these fixes. This is a minor release under the compatibility policy because discovery
+output and gate outcomes change. Do not overwrite or silently reuse an existing version.
 
 - **Affected:** scripts consuming discovery text, required-evidence policy users, watch archive
-  consumers, collector operators, evidence-pack reviewers and subpath site deployments.
+  consumers, collector operators, Codex configuration users, evidence-pack reviewers and subpath
+  site deployments. Do not start a new required-evidence admission gate on the affected 0.5.0
+  package; an absent index could incorrectly pass there.
 - **Do:** use `discover --format inventory` for a credential-free inventory JSON handoff, or accept
   registry-qualified text such as `npm:some-tool@1.2.3` and `pypi:some-tool@1.2.3`; legacy inventory
   text remains readable. Retain `discover --format json` separately for source and conflict review:
   the inventory input intentionally contains only tool identity, not config paths or diagnostics.
+- **Do:** stop assuming that default discovery output is always line-based text: an alias-only
+  entry makes it JSON so the alias cannot be misread as a package/version. The filename does not
+  determine the format. Explicitly disabled Codex entries remain in full diagnostics but not in
+  the inventory export. Unsupported MCP TOML forms exit incomplete, not empty-success.
 - **Do:** pass an explicit, non-sample `--index` (Action input `index`) when the policy requires
   indexed evidence. The local npm package name and version must match the record. Absence is
   incomplete; an unreadable, malformed or sample index is an input error, not a fallback.
@@ -40,9 +45,13 @@ policy before publishing; do not overwrite an existing registry release.
 - **Do:** use `build-site.mjs --base-path /agentgate` for the project-site deployment. Supply
   `--diff-index-sha256` only when the diff genuinely belongs to those exact index bytes; an
   unbound diff is omitted. Refresh failure now stops Pages deployment instead of publishing a sample.
-- **Check:** run `npm test`, the acceptance scripts and `scripts/verify.sh`; inspect sample labels,
+- **Check:** run `npm test`, `npm run test:package`, the acceptance scripts and `scripts/verify.sh`; inspect sample labels,
   observation times, required-evidence failures and the migration capture before customer use.
   Local success does not validate the deployed service, a customer's environment or customer adoption.
+- **After publication:** use the exact version, compare the registry integrity with the accepted
+  CI tarball, then rerun `scripts/check-delivery.mjs` against a fresh extraction of the public
+  tarball before promoting `latest`. Keep the prior archive and deployment snapshot for rollback;
+  never turn a newly incomplete result back into a pass just to match the old result.
 
 ## 0.5.0
 

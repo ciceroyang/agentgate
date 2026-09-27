@@ -12,6 +12,7 @@
  * routinely carry tokens.
  */
 import { candidateSources } from "./known-configs.mjs"
+import { parseCodexMcpToml } from "./codex-toml.mjs"
 
 export const SCHEMA_VERSION = 1
 
@@ -126,13 +127,16 @@ function recordOf(item, source) {
   const entry = item.entry || {}
   const pkg = packageOf(entry.command, entry.args)
   const url = urlOf(entry)
+  const host = url ? hostOf(url) : null
   return {
     name: item.name,
+    enabled: entry.enabled === false ? false : entry.enabled === true ? true : null,
     transport: transportOf(entry),
     package: pkg ? pkg.package : null,
     version: pkg ? pkg.version : null,
     registry: pkg ? pkg.registry : null,
-    host: url ? hostOf(url) : null,
+    host,
+    identityStatus: pkg ? (pkg.version ? "declared-package-version" : "declared-package") : host ? "remote-host-only" : "unresolved",
     tool: source.tool,
     scope: source.scope,
     source: source.abs,
@@ -158,22 +162,18 @@ export function discover(options) {
       sources.push(Object.assign({}, candidate, { status: "unreadable", reason: "read-failed", servers: 0 }))
       continue
     }
-    if (candidate.parser === "toml") {
-      sources.push(Object.assign({}, candidate, { status: "unparsed", reason: "toml-not-supported", servers: 0 }))
-      continue
-    }
-    let doc
+    let items
     try {
-      doc = JSON.parse(text)
+      items = candidate.parser === "toml" ? parseCodexMcpToml(text) : serversIn(JSON.parse(text), candidate.shape)
     } catch (error) {
-      sources.push(Object.assign({}, candidate, { status: "unparsed", reason: "invalid-json", servers: 0 }))
+      const reason = candidate.parser === "toml" ? (error.code === "unsupported-mcp-toml" ? "unsupported-mcp-toml" : "invalid-toml") : "invalid-json"
+      sources.push(Object.assign({}, candidate, { status: "unparsed", reason, servers: 0 }))
       continue
     }
-    const items = serversIn(doc, candidate.shape)
     sources.push(Object.assign({}, candidate, { status: "read", reason: null, servers: items.length }))
     for (const item of items) records.push(recordOf(item, candidate))
   }
-  const identityOf = r => JSON.stringify([r.registry, r.package, r.version, r.transport,
+  const identityOf = r => JSON.stringify([r.registry, r.package, r.version, r.transport, r.enabled,
     r.package ? null : [r.name, r.host, r.source, r.projectPath]])
   const byName = new Map()
   for (const record of records) {
@@ -182,7 +182,7 @@ export function discover(options) {
     if (existing) {
       if (existing.from.indexOf(record.source) === -1) existing.from.push(record.source)
     } else {
-      byName.set(key, { name: record.name, transport: record.transport, package: record.package, version: record.version, registry: record.registry, host: record.host, from: [record.source], scopes: [record.scope], tools: [record.tool] })
+      byName.set(key, { name: record.name, enabled: record.enabled, transport: record.transport, package: record.package, version: record.version, registry: record.registry, host: record.host, identityStatus: record.identityStatus, from: [record.source], scopes: [record.scope], tools: [record.tool] })
     }
   }
   const servers = Array.from(byName.values()).sort(function (a, b) { return a.name.localeCompare(b.name) })
@@ -212,20 +212,28 @@ export function discover(options) {
       sourcesRead: sources.filter(function (s) { return s.status === "read" }).length,
       sourcesIncomplete: sources.filter(function (s) { return s.status !== "read" }).length,
       servers: servers.length,
+      serversDisabled: servers.filter(function (s) { return s.enabled === false }).length,
+      serversExported: servers.filter(function (s) { return s.enabled !== false }).length,
+      exportedPackagesUnknown: servers.filter(function (s) { return s.enabled !== false && !s.package }).length,
+      exportedVersionsUnknown: servers.filter(function (s) { return s.enabled !== false && !s.version }).length,
     },
     incomplete: incomplete,
     boundary: "只列出这些配置路径里能找到的服务器。找不到的路径不代表没有，读不到的文件已单独列出。",
   }
 }
 
-/** One line per server, in the shape agentgate inventory --input accepts. */
+/** Inventory-ready text: lines for package coordinates, JSON for any alias-only entry. */
 export function renderText(report) {
-  return report.servers.map(function (s) {
+  const included = report.servers.filter(function (s) { return s.enabled !== false })
+  // An alias such as "tool@1.2.3" would be reinterpreted by inventory's plain-text parser as
+  // an npm package with an exact version. JSON preserves the explicit null package/version.
+  if (included.some(function (s) { return !s.package })) return renderInventory(report) + "\n"
+  return included.map(function (s) {
     return s.package ? (s.registry || "unknown") + ":" + s.package + (s.version ? "@" + s.version : "") : s.name
-  }).join("\n") + (report.servers.length ? "\n" : "")
+  }).join("\n") + (included.length ? "\n" : "")
 }
 
 /** Preserve package coordinates for inventory; source/conflict diagnostics stay in full JSON. */
 export function renderInventory(report) {
-  return JSON.stringify({ tools: report.servers.map(s => ({ name: s.name, package: s.package, registry: s.registry, version: s.version })) }, null, 2)
+  return JSON.stringify({ tools: report.servers.filter(s => s.enabled !== false).map(s => ({ name: s.name, package: s.package, registry: s.registry, version: s.version })) }, null, 2)
 }

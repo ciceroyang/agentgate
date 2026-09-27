@@ -3,6 +3,43 @@
 > 给"没做过 npm 发布"的人看。每一步写清点哪里、填什么、看到什么算成功。
 > **2026-09-18：修好并跑通。** 账号与作用域见第一节；`0.1.0` 本机手动发（bootstrap），之后由 CI 用 OIDC 发布（带 provenance）。2026-09-18 修掉了两个发布失败原因（setup-node 的占位 token、仓库重建后可信发布者绑定失效），`0.2.3` 已发到 `next`；`latest` 仍是 `0.2.0`。
 
+## 0.6.0 发布流程
+
+以下是当前发布要求；后文带日期的记录是历史，不是当前状态。
+0.6.0 将必需证据误放行、清单身份丢失、变化漏报和 Codex 配置解析的修复一起交付。
+因为输出格式和准入结果改变，按[兼容规则](../spec/compatibility.md)升次版本；
+不要重新发布 0.5.0，也不要把本地验收说成公开包已经修复。
+
+本地准备（不发布、不推送）：
+
+```sh
+npm test
+node scripts/release-check.mjs --tag v0.6.0 --online
+npm run test:package
+```
+
+最后一条会建立独立临时目录、打包、解包，再对交付的代码运行合成场景验收；输出的
+`release.json` 记录安装包摘要，`acceptance.json` 记录每项结果。也可使用
+`node scripts/pack-release.mjs --out-dir /absolute/new-directory` 留在指定新目录，已有目录会被拒绝。
+它不下载依赖、不运行客户配置，也不执行 npm/GitHub 写入。
+
+发布时必须按顺序完成：
+
+1. 审阅改动和[迁移说明](upgrade.md#060)，确认发布授权后提交全部预期文件；更新候选状态与发布日期，重新验收，不带脏工作区打 tag。
+2. `package.json`、`server.json`（含内层 npm 版本）和 `lhm.plugin.json` 一致；`release-check` 已自动检查，遗漏任何一处会失败。
+3. 推送经过审阅的确切 tag 后，CI 跑完整测试、构建并验收安装包；发布前再次核对摘要，然后向 `next` 发布这个文件，而不是重新打包目录。
+4. 保存 CI 的 `verified-package` 与 `sbom` 产物。验收回执只防止流程中的意外替换，不是数字签名；发布来源以 npm provenance 为准。
+5. 等待 registry 实际可读，用公开版本元数据核对版本、provenance 和 `dist.integrity` 与 CI 回执一致；下载该公开 tarball 到新目录、解包，再执行下面的同一验收脚本。发布日志成功不等于这一步完成，传播延迟时不要重复发布。
+
+   ```sh
+   node scripts/check-delivery.mjs /absolute/public-package/package public-0.6.0 /absolute/new-public-acceptance.json
+   ```
+
+6. 公开包复验、部署演示与升级检查通过后，才考虑提升 `latest`；GitHub release 附上 SBOM、安装包摘要和公开复验结果。MCP registry、LobeHub 的更新是单独的外部写入，不能由本地同步版本推断已经更新。
+
+这条流程使用 npm 支持的[直接发布 tarball](https://docs.npmjs.com/cli/v11/commands/npm-publish/)。
+本地通过只说明候选安装包在约定场景下可用，不代表客户覆盖率、客户验收或企业部署完成。
+
 ## 零、先理解三个词（30 秒）
 
 - **npm**：JavaScript 的包仓库。别人跑 `npx @zhiliangtech/agentgate` 时，东西就是从这里下载的。
@@ -75,7 +112,7 @@ npm 网站 → 你的包 `@zhiliangtech/agentgate` → **Settings** → **Truste
 - **用 `actions/setup-node@v7` 或更新。** v4 只要设了 `registry-url` 就会导出一个占位 `NODE_AUTH_TOKEN`（`XXXXX-XXXXX-XXXXX-XXXXX`），npm 11 优先用这个假 token 而不是 OIDC，registry 回一个误导性的 `404 Not Found - PUT`。
 - **发布前删掉 setup-node 生成的 `.npmrc`**（`rm -f "$NPM_CONFIG_USERCONFIG"`）。里面那行 `_authToken=${NODE_AUTH_TOKEN}` 即使指向空值，也会让 npm 认为"已有凭证"而不走 OIDC，表现为 `ENEEDAUTH`。
 
-## 五、之后每次发版（已跑通：v0.1.1）
+## 五、历史发版步骤（当前要求以上方 0.6.0 发布流程为准）
 
 ```sh
 # 1) 改 package.json 的 version；2) 把 CHANGELOG 的 Unreleased 归到这个版本
@@ -96,7 +133,7 @@ registry 可能先回一句 `Your package is being processed and may take a few 
 把 SBOM 下载下来挂到新建的 release 上（0.5.0 和 0.4.0 都是这么补的）；(b) 先建 release 再推 tag，
 workflow 就会自动挂。**别让它只留一个会过期的 workflow artifact** —— 信里那条「你可以自己核」会核不动。
 
-## 六、提升到 latest（最近一次：2026-09-20，0.4.0）
+## 六、提升到 latest 的历史记录
 
 **0.5.0 已于 2026-09-21 提升到 `latest`**（发布由 CI 用 OIDC 完成，带 SLSA provenance；提升由人执行）：
 
@@ -171,7 +208,7 @@ grep -rn '"version"\s*:\s*"0\.' --include="*.json" . | grep -v node_modules | gr
 
 ---
 
-## 已经验证的事实
+## 首次发布时验证的事实（历史记录，不是当前 registry 状态）
 
 | 事 | 结果 | 怎么验的 |
 | --- | --- | --- |

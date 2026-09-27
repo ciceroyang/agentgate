@@ -3,7 +3,7 @@
   "name": "io.github.ciceroyang/agentgate",
   "title": "agentgate",
   "description": "Read-only evidence for the tools agents run: MCP server records, coverage and policy.",
-  "version": "0.5.0",
+  "version": "0.6.0",
   "repository": {
     "url": "https://github.com/ciceroyang/agentgate",
     "source": "github"
@@ -13,7 +13,7 @@
     {
       "registryType": "npm",
       "identifier": "@zhiliangtech/agentgate",
-      "version": "0.5.0",
+      "version": "0.6.0",
       "runtimeHint": "npx",
       "transport": {
         "type": "stdio"

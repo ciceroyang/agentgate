@@ -38,12 +38,12 @@ test("the identifiers the policy prints are the ones the code emits", function (
   assert.equal(PACK_SCHEMA, "agentgate.evidence-pack/v1")
 })
 
-test("every released version has an upgrade note, and no upgrade note invents a version", function () {
+test("every versioned release or candidate has a matching upgrade note", function () {
   const released = Array.from(read("CHANGELOG.md").matchAll(/^## \[(\d+\.\d+\.\d+)\]/gm)).map(function (m) { return m[1] })
   const documented = Array.from(read("docs/operations/upgrade.md").matchAll(/^## (\d+\.\d+\.\d+)$/gm)).map(function (m) { return m[1] })
   assert.ok(released.length >= 10, "expected the released versions, found " + released.length)
   assert.deepEqual(documented.slice().sort(), released.slice().sort(),
-    "the upgrade guide and the CHANGELOG disagree about which versions shipped")
+    "the upgrade guide and the CHANGELOG disagree about documented versions")
 })
 
 test("the security policy says where to report and which versions are supported", function () {
@@ -56,4 +56,3 @@ test("the security policy says where to report and which versions are supported"
   assert.match(policy, /90 days/, "the support window has no number in it")
   assert.ok(policy.indexOf("latest") !== -1, "the support window does not name the tag it follows")
 })
-

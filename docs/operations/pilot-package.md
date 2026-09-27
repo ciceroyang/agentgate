@@ -2,6 +2,8 @@
 
 *给潜在设计伙伴的试点说明。默认从工具清单开始,报告范围取决于实际提供的材料。*
 
+**交付版本固定为 0.6.0，并先核对[公开安装包验收](https://github.com/ciceroyang/agentgate/releases/tag/v0.6.0)。** 0.5.0 缺少必需证据判断、清单身份和变化检测的修复，不再作为新企业试点的推荐安装版本；源码验收不能代替公开安装包复核。
+
 英文设计伙伴共同执行计划见 [enterprise-pilot-map.md](enterprise-pilot-map.md)。它把四周试点拆成双方责任、首周继续门、成功证据和最终商业决策。
 
 ## 一句话
@@ -82,10 +84,11 @@
 从 0.1.2 起清单可以完全在你们机器上生成:
 
 ```sh
-npx @zhiliangtech/agentgate@0.5.0 discover --out tools.txt                                  # 只输出名字或包名@版本
-npx @zhiliangtech/agentgate@0.5.0 inventory --input tools.txt --out report.html             # 本地出报告
-npx @zhiliangtech/agentgate@0.5.0 inventory --input tools.txt --framework aicaiq --out report.html   # 问卷对照
-npx @zhiliangtech/agentgate@0.5.0 watch --input tools.txt --archive ./agentgate-archive      # 每周看变化
+# 使用发布记录中已经复核的精确版本：
+npx --yes --ignore-scripts @zhiliangtech/agentgate@0.6.0 discover --format inventory --out tools.json
+npx --yes --ignore-scripts @zhiliangtech/agentgate@0.6.0 inventory --input tools.json --out report.html
+npx --yes --ignore-scripts @zhiliangtech/agentgate@0.6.0 inventory --input tools.json --framework aicaiq --out report.html
+npx --yes --ignore-scripts @zhiliangtech/agentgate@0.6.0 watch --input tools.json --archive ./agentgate-archive
 ```
 
 （钉住版本是因为我们还在快速迭代;不钉的话,你拿到的行为可能和这份说明不一致。）

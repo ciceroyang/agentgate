@@ -15,7 +15,7 @@ import { existsSync, readFileSync } from "node:fs"
 import { spawnSync } from "node:child_process"
 import { dirname, join, resolve } from "node:path"
 import { fileURLToPath } from "node:url"
-import { classifyPack, changelogHasVersion, pathsFromPackJson, summarize, tagMatches } from "../packages/release/src/release.mjs"
+import { classifyPack, changelogHasVersion, manifestProblems, pathsFromPackJson, summarize, tagMatches } from "../packages/release/src/release.mjs"
 
 const ROOT = resolve(dirname(fileURLToPath(import.meta.url)), "..")
 
@@ -40,12 +40,20 @@ const pkg = JSON.parse(readFileSync(join(ROOT, "package.json"), "utf8"))
 const version = String(args.version || pkg.version)
 const checks = []
 const add = function (level, name, ok, detail) {
-  checks.push({ level: level, name: name, ok: ok, detail: detail || name })
+  checks.push({ level: level, name: name, ok: ok, detail: ok ? name : (detail || name) })
 }
 
 add("problem", "package.json 的版本与 --version 一致", version === pkg.version, "package.json " + pkg.version + " ≠ " + version)
 add("problem", "包名与许可证已声明", Boolean(pkg.name && pkg.license), "缺 name 或 license")
 add("problem", "publishConfig 带了 provenance", Boolean(pkg.publishConfig && pkg.publishConfig.provenance === true), "缺少 publishConfig.provenance")
+try {
+  const server = JSON.parse(readFileSync(join(ROOT, "server.json"), "utf8"))
+  const plugin = JSON.parse(readFileSync(join(ROOT, "lhm.plugin.json"), "utf8"))
+  const problems = manifestProblems(pkg, server, plugin)
+  add("problem", "发布清单的包身份与版本一致", problems.length === 0, problems.join("; "))
+} catch (error) {
+  add("problem", "发布清单可读取", false, error.message)
+}
 
 const binVersion = run(process.execPath, [join(ROOT, "bin", "agentgate.mjs"), "version"])
 // The CLI prints "agentgate <version>"; what matters is that the number it reports is this one,
@@ -67,7 +75,8 @@ const changelogPath = join(ROOT, "CHANGELOG.md")
 const changelog = existsSync(changelogPath) ? readFileSync(changelogPath, "utf8") : ""
 add("problem", "CHANGELOG 里有这个版本的一节", changelogHasVersion(changelog, version), "CHANGELOG.md 里没有 " + version)
 
-const packed = run("npm", ["pack", "--dry-run", "--json"])
+const packed = run("npm", ["pack", "--dry-run", "--ignore-scripts", "--json"])
+add("problem", "npm pack 正常退出", packed.status === 0, "npm pack 退出 " + String(packed.status))
 let packPaths = null
 try {
   packPaths = pathsFromPackJson(packed.stdout || "")
@@ -87,7 +96,7 @@ if (args.tests === true) {
   const tests = run("npm", ["test", "--silent"])
   add("problem", "测试通过", tests.status === 0, "npm test 退出 " + String(tests.status))
 } else {
-  checks.push({ level: "warning", name: "测试通过", ok: false, detail: "没有跑测试（用 --tests 跑一次再发）" })
+  checks.push({ level: "warning", name: "测试通过", ok: false, detail: "本次预检未运行测试（可单独运行 npm test，或使用 --tests）" })
 }
 
 let published = null
@@ -97,7 +106,7 @@ if (args.online === true) {
     const tagsResponse = await fetch("https://registry.npmjs.org/-/package/" + encoded + "/dist-tags")
     const tags = tagsResponse.ok ? await tagsResponse.json() : null
     const versionResponse = await fetch("https://registry.npmjs.org/" + encoded + "/" + version)
-    published = { tags: tags, exists: versionResponse.status === 200 }
+    published = { checkedAt: new Date().toISOString(), tags: tags, exists: versionResponse.status === 200, versionResponseStatus: versionResponse.status }
     add("problem", "这个版本还没有发布过", versionResponse.status === 404, version + " 已经存在于 registry（" + String(versionResponse.status) + "）")
     // The condition and the label were inverted. The assertion that has to hold before a release is
     // "latest does not point here yet" — publishing goes to `next` first and a human promotes it — so
@@ -116,7 +125,8 @@ if (args.format === "json") {
     const mark = check.ok ? "ok  " : check.level === "problem" ? "FAIL" : "warn"
     process.stdout.write(mark + "  " + check.name + (check.ok ? "" : "  -> " + check.detail) + "\n")
   }
-  process.stdout.write("\n" + (verdict.ok ? "可以发布：" + version : "还不能发布：" + verdict.problems.length + " 个问题") + "\n")
+  process.stdout.write("\n" + (verdict.ok ? "发布预检通过：" + version : "发布预检未通过：" + verdict.problems.length + " 个问题") + "\n")
+  if (verdict.ok) process.stdout.write("仍须安装包验收、CI 发布与公开回读；这不是正式发布完成。\n")
   if (verdict.warnings.length > 0) process.stdout.write("提醒：" + verdict.warnings.length + " 条（不挡发布）\n")
 }
 process.exit(verdict.ok ? 0 : 1)

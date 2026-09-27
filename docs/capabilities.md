@@ -12,11 +12,11 @@ LangGraph 集成）当成已有能力写进了分析。那些名字在整个仓�
 | 能力 | 代码在哪 | 跑这条命令 | **这条不证明什么** |
 | --- | --- | --- | --- |
 | 有哪些命令 | `bin/agentgate.mjs` | `node bin/agentgate.mjs --help` | 帮助不会启动服务或采集；含 `refresh --help` 的无副作用回归 |
-| 版本 | `package.json` | `node bin/agentgate.mjs version` → `agentgate 0.5.0` | 本机版本不等于你 `npx` 装到的最新版 |
+| 版本 | `package.json` | `node bin/agentgate.mjs version` → `agentgate 0.6.0` | 只说明当前代码的版本；公开安装包和线上部署须分别核对 |
 | 索引有两个来源，分开计数 | `packages/collect/scripts/build-index.mjs` | `curl -s https://xn--5kvo87g.com/v1/index/summary` 看 `sources.registry` / `sources.repositories` | 数字只是"我们索引里有多少条"，不是"生态里有多少" |
 | 每条记录带扫描执行块 | `packages/collect/src/execution.mjs` | 同上，看 `execution.byReason` | 它说"哪些检查跑了"，不说"这个 server 安全" |
 | 仓库记录永远不会是 clean，理由写在组件里 | `packages/collect/src/repository-records.mjs` | `node --test packages/collect/test/repository-records.test.mjs` | 它不读仓库源码 —— 组件里写明 `source-not-read` |
-| 证据包可自校验 | `packages/pack` | `node bin/agentgate.mjs pack --verify docs/samples/evidence-pack-example` → 验通过、退出码 0 | **只证明"没被改过"**，不证明内容为真 |
+| 证据包可自校验 | `packages/pack` | `node bin/agentgate.mjs pack --verify docs/samples/evidence-pack-example` → 验通过、退出码 0 | 只检查包内文件与摘要的一致性，不证明内容真实，也不能防止整包连同摘要一起重写 |
 | 链式账本可校验 | `packages/history/src/ledger.mjs` | `node bin/agentgate.mjs history --verify` → `chain verified` | 本地没有捕获时它验的是空链，并且会把 0 条说出来 |
 | 三值判据，故意没有分数 | `packages/verify/src/check.mjs` | `node --test packages/verify/test/*.test.mjs` | 不是可信度评分。`clean` 只在每个检查都跑过时才发出 |
 | 执行前拦截（单次调用） | `packages/gateway/src/decide.mjs` + `agentgate proxy` | `node --test packages/gateway/test/*.test.mjs` | **单次调用的模式判定**；没有身份、委托、目的对齐、跨请求行为序列 |

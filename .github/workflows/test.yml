@@ -27,6 +27,8 @@ jobs:
         run: npm test   # includes test/*.test.mjs, which runs the built page against a DOM stub
       - name: Release contents and version consistency
         run: node scripts/release-check.mjs
+      - name: Buyer-facing acceptance against the packed release
+        run: npm run test:package
       - name: M1 acceptance (the service answers what it claims to)
         run: node scripts/acceptance.mjs
       - name: M2 acceptance (policy fail, pass and incomplete)
@@ -88,5 +90,7 @@ jobs:
           node-version: "20"
       - name: Unit tests on the oldest supported node
         run: npm test
+      - name: Packed release on the oldest supported node
+        run: npm run test:package
       - name: Deploy rehearsal on the oldest supported node
         run: node scripts/rehearse-deploy.mjs

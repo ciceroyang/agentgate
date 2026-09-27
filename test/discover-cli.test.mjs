@@ -65,3 +65,29 @@ test("a machine with no configs is not an error", function () {
   assert.equal(out.status, 0)
   assert.equal(out.stdout, "")
 })
+
+test("Codex TOML exports only servers not explicitly disabled", function () {
+  const dir = scratchDir("ag-discover-codex-")
+  mkdirSync(join(dir, "repo"), { recursive: true })
+  mkdirSync(join(dir, ".codex"), { recursive: true })
+  writeFileSync(join(dir, ".codex", "config.toml"), [
+    "[mcp_servers.active]", "command = 'npx'", "args = ['active-pkg@1.2.3']",
+    "[mcp_servers.disabled]", "command = 'npx'", "args = ['disabled-pkg@2.0.0']", "enabled = false",
+  ].join("\n"))
+  const out = run(["discover", "--home", dir, "--roots", join(dir, "repo")])
+  assert.equal(out.status, 0, out.stderr)
+  assert.equal(out.stdout.trim(), "npm:active-pkg@1.2.3")
+  assert.match(out.stderr, /明确禁用 1 个，导出 1 个/)
+  assert.doesNotMatch(out.stderr, /没有可识别包坐标/)
+})
+
+test("an opaque Codex command is exported without a fabricated version and warns about unknown identity", function () {
+  const dir = scratchDir("ag-discover-opaque-")
+  mkdirSync(join(dir, "repo"), { recursive: true })
+  mkdirSync(join(dir, ".codex"), { recursive: true })
+  writeFileSync(join(dir, ".codex", "config.toml"), "[mcp_servers.custom]\ncommand = '/opt/company/server'\n")
+  const out = run(["discover", "--home", dir, "--roots", join(dir, "repo")])
+  assert.equal(out.status, 0, out.stderr)
+  assert.deepEqual(JSON.parse(out.stdout), { tools: [{ name: "custom", package: null, registry: null, version: null }] })
+  assert.match(out.stderr, /1 个没有可识别包坐标，1 个没有可提取的声明版本/)
+})

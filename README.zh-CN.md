@@ -31,6 +31,8 @@ agent 工具层的控制面。它清点在用的工具，记录每条结论背�
 
 ## 快速开始
 
+**升级到 0.6.0 前，请先阅读[升级说明](docs/operations/upgrade.md#060)。** 0.5.0 在必需证据缺失时可能误放行，不要再用于新的必需证据准入流程。请核对实际安装版本，并在[发布记录](https://github.com/ciceroyang/agentgate/releases/tag/v0.6.0)查看公开安装包复验；源码工作区与托管服务可能运行不同版本。
+
 Node 20 或更新，零依赖。clone 下来自带一份样本索引，服务立刻能答；`refresh` 会把它换成当天的。
 
 ```sh
@@ -46,11 +48,11 @@ curl -s localhost:8080/badge/<name>.svg
 包发布在 npm 上，名字是 `@zhiliangtech/agentgate`。推一个 `v*` tag，CI 就发一个带 provenance 的版本；那套配置和验证过的事实记在 [publish-checklist.md](docs/operations/publish-checklist.md)。
 
 ```sh
-npx @zhiliangtech/agentgate check --root .
-npx @zhiliangtech/agentgate serve
+npx --yes --ignore-scripts @zhiliangtech/agentgate@0.6.0 check --root .
+npx --yes --ignore-scripts @zhiliangtech/agentgate@0.6.0 serve
 ```
 
-`npx` 跟随 `latest` 这个 dist-tag。需要精确版本就钉住它（`@zhiliangtech/agentgate@0.5.0`）。
+不带版本的 `npx` 跟随 `latest`，不会跟随当前工作区；实际交付应钉住验收过的精确版本，本地改了版本号不代表公开包已经更新。
 
 没有策略文件时，`check` 用内置默认策略（不额外拒绝任何东西），`serve` 用它发布时带的那份快照作答。`refresh` 只写你身边的 `./data`，不会写进装好的包目录。
 
@@ -80,14 +82,14 @@ node bin/agentgate.mjs inventory --input tools.json --index data/index.json --fo
 
 ### 清单从哪来
 
-没有人手上有这份清单。`discover` 读机器上已经存在的 MCP 配置文件，每台 server 打一行，格式正好是 `inventory --input` 能吃的：
+没有人手上有这份清单。`discover` 读机器上已经存在的 MCP 配置文件，输出可直接交给 `inventory --input`。若导出项都有可识别包坐标，就一项一行；只要有仅知别名的条目，就改用 JSON，避免把 `tool@1.2.3` 这样的别名误认成已核实的包和版本：
 
 ```sh
 node bin/agentgate.mjs discover --out tools.txt          # 主目录 + 当前目录
 node bin/agentgate.mjs discover --roots ~/code/a,~/code/b --format json
 ```
 
-它**永远不打印** `env` 的值、请求头或启动参数，远程地址只留主机名——路径和查询串里常有 token。存在但读不了或解析不了的文件（包括这一版还不解析的 `.codex/config.toml`）会被连原因一起列出来，并把退出码置成 2。缺了东西的清单，不会被当成完整的清单打出来。
+它**永远不打印** `env` 的值、请求头或启动参数，远程地址只留主机名——路径和查询串里常有 token。它只读解析 Codex 的 `.codex/config.toml` 中的 MCP 配置，不启动服务；明确禁用的条目保留在 `--format json` 供核对，但不进入文本与 inventory 导出。存在但读不了、格式错误或 MCP TOML 形状暂不支持的文件会连原因一起列出，并把退出码置成 2。包名和版本只来自能识别的启动器参数；自定义命令或远程主机**不等于**已核实的包身份或运行时版本。
 
 ### 一次看多个仓库
 

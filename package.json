@@ -1,6 +1,6 @@
 {
   "name": "@zhiliangtech/agentgate",
-  "version": "0.5.0",
+  "version": "0.6.0",
   "private": false,
   "type": "module",
   "mcpName": "io.github.ciceroyang/agentgate",
@@ -9,6 +9,7 @@
     "packages/*"
   ],
   "scripts": {
+    "test:package": "node scripts/pack-release.mjs",
     "test": "node --test test/*.test.mjs packages/guard/test/*.test.mjs packages/guard/test/invariant.mjs packages/collect/test/*.test.mjs packages/policy/test/*.test.mjs packages/history/test/*.test.mjs packages/gateway/test/*.test.mjs packages/service/test/*.test.mjs packages/verify/test/*.test.mjs packages/watch/test/*.test.mjs packages/backup/test/*.test.mjs packages/mcp/test/*.test.mjs packages/pack/test/*.test.mjs packages/release/test/*.test.mjs",
     "test:guard": "node --test packages/guard/test/*.test.mjs packages/guard/test/invariant.mjs",
     "test:collect": "node --test packages/collect/test/*.test.mjs",
@@ -57,8 +58,10 @@
     "docs/spec/",
     "docs/roadmap.md",
     "docs/operations/upgrade.md",
+    "docs/operations/README.md",
     "README.md",
     "README.zh-CN.md",
+    "CHANGELOG.md",
     "SECURITY.md",
     "server.json",
     "LICENSE"

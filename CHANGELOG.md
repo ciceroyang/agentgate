@@ -1,9 +1,14 @@
 # Changelog
 
-All notable changes to this package. The version here is the version that shipped; the tarball and
-the tag agree with it, and `scripts/release-check.mjs` refuses a release whose section is missing.
+All notable changes to this package. Dated versions describe shipped releases; a section marked
+Unreleased is a local candidate, not registry availability. The tarball and tag must agree with
+the version, and `scripts/release-check.mjs` refuses a release whose section is missing.
 
-## [Unreleased]
+## [0.6.0] - 2026-09-27
+
+This minor release contains fixes that are not included in the 0.5.0 package.
+Follow the [upgrade guide](docs/operations/upgrade.md#060) before switching an existing gate or
+watch archive; publication and public-package readback are separate steps.
 
 - Fail closed when required indexed evidence is absent; reject invalid or sample indexes and
   match local npm evidence by registry, name and exact version. Named scanner requirements now
@@ -15,6 +20,9 @@ the tag agree with it, and `scripts/release-check.mjs` refuses a release whose s
 - Preserve discovery identity across registries and aliases; add a credential-free inventory JSON
   export. Watch fingerprints now cover findings, content evidence and scanner identity while
   retaining only hashes of private material.
+- Read supported Codex MCP TOML tables without starting configured tools. Omit explicitly disabled
+  tools from inventory exports while retaining them in diagnostics; report unsupported shapes as
+  incomplete. Alias-only identities remain explicit unknowns, never inferred package versions.
 - Log allowed batch calls and each whole-batch refusal, withhold proxy startup arguments, and
   require actual decision records and nonempty archives before claiming evidence-pack coverage.
 - Check PyPI withdrawal at the declared-version file level; attribute install-script findings to
@@ -25,11 +33,17 @@ the tag agree with it, and `scripts/release-check.mjs` refuses a release whose s
 - Include release unit tests in the default suite and release-content checks in CI. These changes
   are not a deployment or a claim of enterprise readiness; see the
   [trust-hardening handoff](docs/operations/trust-hardening.md).
+- Check version consistency across npm, MCP registry and plugin manifests. Add `npm run test:package`
+  to accept an extracted tarball with synthetic buyer-facing failure cases, including a successful
+  evidence-backed pass. The publish workflow now publishes that same tarball after checking its
+  digest, instead of repacking the working directory. Include this changelog in the installed package.
 
 ### Breaking
 
 - Discovery text now includes the registry prefix; scripts consuming the old bare package text
-  must migrate. The inventory JSON export preserves package coordinates but does not carry full
+  must migrate. If any exported entry has only an alias, default output is inventory JSON, even
+  when the output filename ends in `.txt`. Use `--format inventory` for a stable JSON handoff.
+  The inventory JSON export preserves package coordinates but does not carry full
   discovery diagnostics: retain the full discovery JSON when reviewing sources and alias conflicts.
 - Invalid, absent or incomplete required evidence no longer passes `check`; the provisional pack
   requires nonempty archives and actual gateway decisions for the corresponding evidence classes.

@@ -35,6 +35,16 @@ jobs:
           tag="${GITHUB_REF_NAME#v}"
           version="$(node -p "require('./package.json').version")"
           test "$tag" = "$version" || { echo "tag $tag does not match version $version"; exit 1; }
+      - name: Pack once and accept the delivered package
+        run: node scripts/pack-release.mjs --out-dir "$RUNNER_TEMP/agentgate-package"
+      - name: Retain the exact accepted package and its report
+        uses: actions/upload-artifact@v4
+        with:
+          name: verified-package
+          path: |
+            ${{ runner.temp }}/agentgate-package/*.tgz
+            ${{ runner.temp }}/agentgate-package/acceptance.json
+            ${{ runner.temp }}/agentgate-package/release.json
       - name: Generate our own SBOM before publishing
         run: node scripts/sbom.mjs --out sbom/agentgate.cdx.json
       - uses: actions/upload-artifact@v4
@@ -49,9 +59,10 @@ jobs:
       # both behaviours, and the version line makes the toolchain visible in the log.
       - name: Publish to the next tag first
         run: |
+          tarball="$(node scripts/pack-release.mjs --verified-path "$RUNNER_TEMP/agentgate-package/release.json")"
           rm -f "${NPM_CONFIG_USERCONFIG:-$HOME/.npmrc}"
           node -v && npm -v
-          npm publish --provenance --access public --tag next
+          npm publish "$tarball" --ignore-scripts --provenance --access public --tag next
       - name: Attach the SBOM to the release when there is one
         env:
           GH_TOKEN: ${{ github.token }}
@@ -63,5 +74,5 @@ jobs:
           fi
       - name: How to promote
         run: |
-          echo "Published as next. Once the deployment demo is verified, promote with:"
+          echo "Published as next. Verify registry integrity, re-download and accept the public package, then verify the deployment demo before promotion:"
           echo "  npm dist-tag add $(node -p "require('./package.json').name")@$(node -p "require('./package.json').version") latest"

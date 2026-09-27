@@ -46,6 +46,12 @@ sign up for. [Pricing](https://ciceroyang.github.io/agentgate/pricing.html) and 
 
 ## Quickstart
 
+**Upgrading to 0.6.0:** read [the upgrade guide](docs/operations/upgrade.md#060) before replacing
+an existing admission gate or watch installation. The 0.5.0 package can incorrectly pass a
+required-evidence gate when evidence is absent; do not use it for a new gate. Confirm the version
+you installed, and see the [release record](https://github.com/ciceroyang/agentgate/releases/tag/v0.6.0)
+for public-package verification. A source checkout and the hosted service may run different versions.
+
 Node 20 or newer, no dependencies. A clone already carries a sample index, so the service
 answers immediately; `refresh` replaces it with a current one.
 
@@ -64,12 +70,12 @@ provenance; [publish-checklist.md](docs/operations/publish-checklist.md) has the
 record of what was verified.
 
 ```sh
-npx @zhiliangtech/agentgate check --root .
-npx @zhiliangtech/agentgate serve
+npx --yes --ignore-scripts @zhiliangtech/agentgate@0.6.0 check --root .
+npx --yes --ignore-scripts @zhiliangtech/agentgate@0.6.0 serve
 ```
 
-`npx` follows the `latest` dist-tag. Pin a version (`@zhiliangtech/agentgate@0.5.0`) if you need
-an exact one.
+An unversioned `npx` command follows the `latest` dist-tag, not this checkout. Pin the accepted
+version; editing a local version number does not change the public package.
 
 With no policy file, `check` uses a built-in default that refuses nothing extra, and `serve`
 answers from the snapshot the package shipped with. `refresh` writes to `./data` next to you,
@@ -117,7 +123,9 @@ refuse something, use `check`, not `inventory`.
 ### Getting the list in the first place
 
 Nobody has this list by hand. `discover` reads the MCP configuration files already on the
-machine and prints one line per server, in the format `inventory --input` accepts:
+machine and produces input that `inventory --input` accepts. It prints package coordinates as
+lines when all exported identities are known; if any entry is alias-only, it uses JSON so an
+alias such as `tool@1.2.3` cannot be mistaken for a verified package and version:
 
 ```sh
 node bin/agentgate.mjs discover --out tools.txt          # home directory + current directory
@@ -125,10 +133,12 @@ node bin/agentgate.mjs discover --roots ~/code/a,~/code/b --format json
 ```
 
 It never prints an `env` value, a header or an argument, and a remote address is cut down to its
-host, because paths and query strings carry tokens. A file that exists but cannot be read or
-parsed — including `.codex/config.toml`, which this version does not parse — is listed with a
-reason and makes the command exit 2. A list that is missing something is not printed as a
-complete list.
+host, because paths and query strings carry tokens. It reads Codex's `.codex/config.toml` MCP
+tables without starting the configured servers. Explicitly disabled entries remain visible in
+`--format json` but are omitted from text and inventory exports. Unsupported MCP TOML shapes,
+malformed files and unreadable files are listed with a reason and make the command exit 2.
+Package names and versions are taken only from recognizable declared runner arguments; a custom
+command or remote host is **not** treated as a verified package or runtime version.
 
 ### Several repositories
 

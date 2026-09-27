@@ -455,7 +455,10 @@ function discoverCommand(flags) {
     console.error("清单已保存：" + resolve(String(flags.out)))
   } else process.stdout.write(rendered)
   const bad = report.sources.filter(function (s) { return s.status !== "read" })
-  console.error("找到 " + report.counts.sourcesFound + " 个配置文件，读到 " + report.counts.sourcesRead + " 个；服务器 " + report.counts.servers + " 个。")
+  console.error("找到 " + report.counts.sourcesFound + " 个配置文件，读到 " + report.counts.sourcesRead + " 个；配置服务器 " + report.counts.servers + " 个（明确禁用 " + report.counts.serversDisabled + " 个，导出 " + report.counts.serversExported + " 个）。")
+  if (report.counts.exportedPackagesUnknown || report.counts.exportedVersionsUnknown) {
+    console.error("导出项中 " + report.counts.exportedPackagesUnknown + " 个没有可识别包坐标，" + report.counts.exportedVersionsUnknown + " 个没有可提取的声明版本；不能把这些未知当成索引未覆盖或运行时已核实。")
+  }
   for (const s of bad) console.error("  没读成： " + s.abs + "  (" + s.reason + ")")
   if (report.incomplete) console.error("这份清单不完整：" + bad.length + " 个来源存在但没读成，别把它当成全部。")
   // Same rule as everywhere else: a list that is missing something does not exit 0.

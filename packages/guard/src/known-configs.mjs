@@ -32,8 +32,7 @@ export const MACHINE_SOURCES = [
   { path: ".config/zed/settings.json", tool: "zed", shape: "context_servers", parser: "json" },
   { path: "Library/Application Support/Claude/claude_desktop_config.json", tool: "claude-desktop", shape: "mcpServers", parser: "json", platforms: ["darwin"] },
   { path: ".config/Claude/claude_desktop_config.json", tool: "claude-desktop", shape: "mcpServers", parser: "json", platforms: ["linux"] },
-  // Not parsed in this version. It is listed so the report can say "found, not read" instead of
-  // implying the machine has no Codex servers.
+  // The bounded parser reads only MCP table fields; unsupported MCP shapes remain incomplete.
   { path: ".codex/config.toml", tool: "codex", shape: "mcp_servers", parser: "toml" },
 ]
 
