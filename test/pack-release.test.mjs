@@ -11,7 +11,7 @@ const script = join(ROOT, "scripts/pack-release.mjs")
 const run = args => spawnSync(process.execPath, [script, ...args], { cwd: ROOT, encoding: "utf8", timeout: 120000 })
 
 test("the release gate accepts the actual tarball and refuses later byte changes or overwrites", () => {
-  const output = join(scratchDir("ag-release-test-"), "candidate")
+  const output = join(scratchDir("ag-release-test-"), "中文 & % candidate")
   const result = run(["--out-dir", output])
   assert.equal(result.status, 0, result.stdout + result.stderr)
   const receipt = JSON.parse(result.stdout)
@@ -19,6 +19,17 @@ test("the release gate accepts the actual tarball and refuses later byte changes
   assert.equal(acceptance.summary.failed, 0)
   assert.ok(acceptance.checks.some(check => check.id === "codex-config" && check.passed))
   assert.ok(acceptance.checks.some(check => check.id === "valid-required-evidence" && check.passed))
+  const overwrite = acceptance.checks.find(check => check.id === "cli-output-no-implicit-overwrite")
+  assert.ok(overwrite.passed)
+  assert.ok(overwrite.observed.attempts.every(attempt => attempt.unchanged))
+  if (process.platform === "win32") {
+    assert.match(receipt.installation.executable, /agentgate\.cmd$/)
+    assert.equal(overwrite.observed.permissions.model, "Windows inherited ACL")
+    assert.equal(overwrite.observed.permissions.verified, false, "do not misreport POSIX bits as a private Windows ACL")
+  } else {
+    assert.equal(overwrite.observed.permissions.requiredMode, "0600")
+    assert.equal(overwrite.observed.permissions.verified, true)
+  }
   const verified = run(["--verified-path", receipt.receipt])
   assert.equal(verified.status, 0, verified.stderr)
   assert.equal(verified.stdout.trim(), receipt.tarballPath)

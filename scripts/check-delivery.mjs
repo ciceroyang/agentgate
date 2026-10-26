@@ -41,6 +41,13 @@ const input = (path, text) => { writeFileSync(path, text, { flag: 'wx' }); retur
 const dir = name => { const path = join(scratch, name); mkdirSync(path); return path }
 // Never inherit the operator's home or credential-bearing environment into a CLI check.
 const cliHome = dir('cli-home')
+const cliTemp = dir('cli-temp')
+const cliEnv = { PATH: process.env.PATH, HOME: cliHome, USERPROFILE: cliHome,
+  APPDATA: cliHome, LOCALAPPDATA: cliHome, TMPDIR: cliTemp, TMP: cliTemp, TEMP: cliTemp,
+  AGENTGATE_INDEX: '', NO_COLOR: '1' }
+for (const key of ['SystemRoot', 'WINDIR', 'COMSPEC', 'PATHEXT', 'SystemDrive']) {
+  if (process.env[key] !== undefined) cliEnv[key] = process.env[key]
+}
 const noNetwork = input(join(scratch, 'no-network.cjs'), `
 const deny = () => { throw new Error('network disabled for delivery acceptance') }
 globalThis.fetch = deny
@@ -58,7 +65,7 @@ const run = args => {
   progress(currentCheck, 'command-started')
   const result = spawnSync(process.execPath, ['--require', noNetwork, join(root, 'bin/agentgate.mjs'), ...args], {
     cwd: scratch, encoding: 'utf8', timeout: 15000,
-    env: { PATH: process.env.PATH, HOME: cliHome, AGENTGATE_INDEX: '', NO_COLOR: '1' },
+    env: cliEnv,
   })
   if (result.error) {
     progress(currentCheck, 'command-failed')
@@ -263,7 +270,7 @@ add('cli-default-sample-not-confirmed', '未指定索引时，随包样本会不
     observed: { snapshot: report?.index?.snapshot, matched: report?.summary?.matched,
       knownSampleState: known?.state, sampleExplained } }
 })
-add('cli-output-no-implicit-overwrite', '重复运行命令会不会悄悄覆盖已有清单、报告或源配置？', '重复发现退出 3，重复 JSON/HTML 报告退出 2；原文件逐字节不变且输出权限为 0600', () => {
+add('cli-output-no-implicit-overwrite', '重复运行命令会不会悄悄覆盖已有清单、报告或源配置？', '重复发现退出 3，重复 JSON/HTML 报告退出 2；原文件逐字节不变；POSIX 输出权限为 0600，Windows 继承目录 ACL（本检查不证明 ACL 私密性）', () => {
   const attempts = [
     { path: toolsPath, args: [...discoverArgs, '--format', 'inventory', '--out', toolsPath], expected: 3 },
     { path: jsonPath, args: [...inventoryArgs, '--format', 'json', '--out', jsonPath], expected: 2 },
@@ -275,8 +282,12 @@ add('cli-output-no-implicit-overwrite', '重复运行命令会不会悄悄覆盖
       unchanged: before.equals(readFileSync(attempt.path)), mode: statSync(attempt.path).mode & 0o777 }
   })
   const sourcesUnchanged = [codexPath, mcpPath].every((path, i) => readFileSync(path, 'utf8') === configBefore[i])
-  return { passed: attempts.every(attempt => attempt.exitCode === attempt.expectedExit && attempt.unchanged && attempt.mode === 0o600) && sourcesUnchanged,
-    observed: { attempts, sourcesUnchanged } }
+  const posixPermissions = process.platform !== 'win32'
+  return { passed: attempts.every(attempt => attempt.exitCode === attempt.expectedExit && attempt.unchanged &&
+      (!posixPermissions || attempt.mode === 0o600)) && sourcesUnchanged,
+    observed: { attempts, sourcesUnchanged, permissions: posixPermissions
+      ? { model: 'POSIX', requiredMode: '0600', verified: attempts.every(attempt => attempt.mode === 0o600) }
+      : { model: 'Windows inherited ACL', verified: false, boundary: 'Use a private user directory; POSIX mode bits do not establish Windows ACL privacy.' } } }
 })
 add('cli-invalid-source-stays-incomplete', '一份 MCP JSON 结构无效时，会不会伪装成完整空清单或丢掉好来源？', '真实 CLI 退出 2，标记 unsupported-mcp-json 和 incomplete，并仍导出有效来源', () => {
   const partialRoot = dir('cli-partial-project')

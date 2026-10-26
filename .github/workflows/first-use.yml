@@ -38,6 +38,18 @@ jobs:
         run: |
           node -e "require('fs').mkdirSync(require('path').join(process.env.RUNNER_TEMP,'agentgate-first-use'),{recursive:true})"
           node scripts/pack-release.mjs --out-dir "$RUNNER_TEMP/agentgate-first-use/中文 & % candidate"
+      - name: Install isolated browser test tooling
+        run: npm ci --prefix tools/browser-qa --ignore-scripts --no-audit --no-fund
+      - name: Package integrity and no-overwrite regression
+        run: node --test test/pack-release.test.mjs
+      - name: Install test Chromium on Linux
+        if: runner.os == 'Linux'
+        run: node tools/browser-qa/node_modules/playwright/cli.js install --with-deps chromium
+      - name: Install test Chromium on Windows
+        if: runner.os == 'Windows'
+        run: node tools/browser-qa/node_modules/playwright/cli.js install chromium
+      - name: Installed web import, preview and downloaded report readback
+        run: node tools/browser-qa/check-first-use.mjs "$RUNNER_TEMP/agentgate-first-use/中文 & % candidate/release.json" "$RUNNER_TEMP/agentgate-first-use/browser"
       - name: Retain exact candidate and failure-stage evidence
         if: always()
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
@@ -50,3 +62,8 @@ jobs:
             ${{ runner.temp }}/agentgate-first-use/**/release.json
             ${{ runner.temp }}/agentgate-first-use/**/acceptance.json
             ${{ runner.temp }}/agentgate-first-use/**/*.jsonl
+            ${{ runner.temp }}/agentgate-first-use/browser/browser-acceptance.json
+            ${{ runner.temp }}/agentgate-first-use/browser/commands.json
+            ${{ runner.temp }}/agentgate-first-use/browser/server.log
+            ${{ runner.temp }}/agentgate-first-use/browser/downloads/*.html
+            ${{ runner.temp }}/agentgate-first-use/browser/screenshots/*.png
