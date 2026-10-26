@@ -3,6 +3,7 @@
  * Local synthetic acceptance only: no registry access, install hooks, publish, tag,
  * or discovery of the user's real projects/configuration.
  *   node scripts/pack-release.mjs [--out-dir NEW_DIRECTORY]
+ *   node scripts/pack-release.mjs --from-receipt RECEIPT_JSON --out-dir NEW_DIRECTORY
  *   node scripts/pack-release.mjs --verified-path RECEIPT_JSON
  */
 import { mkdirSync, mkdtempSync, readFileSync, realpathSync, statSync, writeFileSync } from "node:fs"
@@ -53,14 +54,26 @@ try {
     reject(packedReceiptProblems(receipt, readFileSync(tarball), acceptanceBytes, pkg))
     process.stdout.write(tarball + "\n")
   } else {
-    if (args.length && (args.length !== 2 || args[0] !== "--out-dir" || !args[1])) {
-      throw new Error("usage: pack-release.mjs [--out-dir NEW_DIRECTORY | --verified-path RECEIPT_JSON]")
+    const fromReceipt = args.length === 4 && args[0] === "--from-receipt" && args[1] && args[2] === "--out-dir" && args[3]
+    if (!fromReceipt && args.length && (args.length !== 2 || args[0] !== "--out-dir" || !args[1])) {
+      throw new Error("usage: pack-release.mjs [--out-dir NEW_DIRECTORY | --from-receipt RECEIPT_JSON --out-dir NEW_DIRECTORY | --verified-path RECEIPT_JSON]")
+    }
+    // Native matrix jobs consume the single builder's exact accepted bytes, not a
+    // platform-local rebuild. Validate the source receipt before creating output.
+    let source
+    if (fromReceipt) {
+      const path = resolve(args[1]), receipt = jsonAt(path)
+      const filename = safeFilename(receipt.tarball?.filename)
+      const bytes = readFileSync(join(dirname(path), filename))
+      reject(packedReceiptProblems(receipt, bytes, readFileSync(join(dirname(path), "acceptance.json")), pkg))
+      if (bytes.length !== receipt.tarball.bytes) throw new Error("Source tarball byte count differs from receipt")
+      source = { filename, bytes, receiptSha256: sha256(readFileSync(path)) }
     }
     const server = jsonAt(join(ROOT, "server.json"))
     const plugin = jsonAt(join(ROOT, "lhm.plugin.json"))
     reject(manifestProblems(pkg, server, plugin))
     // A supplied output directory must be new: never overwrite an earlier acceptance result.
-    const output = args.length ? resolve(args[1]) : mkdtempSync(join(tmpdir(), "agentgate-release-"))
+    const output = args.length ? resolve(fromReceipt ? args[3] : args[1]) : mkdtempSync(join(tmpdir(), "agentgate-release-"))
     // npm's generated cmd-shim expands its own directory in an unquoted SET.
     // Native acceptance proved '&' splits it before AgentGate starts. Do not patch
     // npm, bypass its launcher, or mislabel a direct Node run as a shim pass.
@@ -69,7 +82,7 @@ try {
     }
     if (args.length) mkdirSync(output, { mode: 0o700 })
     progress = createProgressJournal(join(output, "progress.jsonl"), [
-      "npm pack", "list packed archive", "extract packed archive", "npm install",
+      "npm pack", "import verified archive", "list packed archive", "extract packed archive", "npm install",
       "installed launcher version", "installed delivery checks", "release receipt",
     ])
     const home = join(output, "acceptance-home")
@@ -99,22 +112,31 @@ try {
       const invocation = npmInvocation(npm, args)
       return run(invocation.command, invocation.args, cwd, env, "npm " + args[0])
     }
-    const packed = JSON.parse(runNpm(["pack", "--offline", "--ignore-scripts", "--json", "--pack-destination", output], ROOT))
-    if (!Array.isArray(packed) || packed.length !== 1) throw new Error("Expected exactly one npm package")
-    const entry = packed[0]
+    let entry
+    if (source) {
+      progress("import verified archive", "started")
+      writeFileSync(join(output, source.filename), source.bytes, { flag: "wx", mode: 0o600 })
+      entry = { name: pkg.name, version: pkg.version, filename: source.filename, integrity: integrity(source.bytes) }
+      progress("import verified archive", "passed")
+    } else {
+      const packed = JSON.parse(runNpm(["pack", "--offline", "--ignore-scripts", "--json", "--pack-destination", output], ROOT))
+      if (!Array.isArray(packed) || packed.length !== 1) throw new Error("Expected exactly one npm package")
+      entry = packed[0]
+    }
     if (entry.name !== pkg.name || entry.version !== pkg.version) throw new Error("Packed identity differs from package.json")
     const tarball = join(output, safeFilename(entry.filename))
     const bytes = readFileSync(tarball)
     if (integrity(bytes) !== entry.integrity) throw new Error("npm pack integrity differs from the actual tarball")
-    const content = classifyPack(entry.files.map(file => file.path), { allow: pkg.files.concat("package.json") })
-    reject(content.missing.map(path => "Missing packaged file: " + path).concat(content.leaks.map(item => "Forbidden packaged file: " + item.path)))
-    // Only extract the tarball just produced by npm, and refuse unexpected path shapes first.
+    // Only extract a byte-verified archive, and refuse unexpected path shapes first.
     // GNU tar on Windows interprets an absolute drive-letter archive as host:path.
     // A validated basename and cwd work on GNU and BSD tar without shell quoting.
     const paths = run("tar", ["-tzf", safeFilename(entry.filename)], output, env, "list packed archive").trim().split(/\r?\n/)
     if (paths.some(path => !path.startsWith("package/") || path.includes("\\") || path.split("/").includes(".."))) {
       throw new Error("Unexpected path in npm tarball")
     }
+    const files = paths.filter(path => !path.endsWith("/")).map(path => path.slice("package/".length))
+    const content = classifyPack(files, { allow: pkg.files.concat("package.json") })
+    reject(content.missing.map(path => "Missing packaged file: " + path).concat(content.leaks.map(item => "Forbidden packaged file: " + item.path)))
     const extracted = join(output, "extracted")
     mkdirSync(extracted)
     run("tar", ["-xzf", safeFilename(entry.filename), "-C", "extracted"], output, env, "extract packed archive")
@@ -156,7 +178,8 @@ try {
       runtime: { node: process.version, platform: process.platform, arch: process.arch, npm },
       tarball: { filename: entry.filename, bytes: bytes.length, integrity: integrity(bytes), sha256: sha256(bytes) },
       acceptance: { filename: "acceptance.json", sha256: sha256(acceptanceBytes), summary: acceptance.summary },
-      content: { files: entry.files.length, unexplained: content.unexplained },
+      content: { files: files.length, unexplained: content.unexplained },
+      source: source ? { method: "verified-receipt-import", receiptSha256: source.receiptSha256 } : { method: "local-npm-pack" },
       installation: { method: "npm-offline-ignore-scripts", tarballStaging: "byte-verified-temporary-copy", packageRoot, executable, reportedVersion: reported },
       boundary: "Local synthetic acceptance only; not a public release, customer acceptance, or a signed attestation.",
     }

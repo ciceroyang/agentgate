@@ -7,14 +7,19 @@ claim that the public npm package already contains these changes. The dedicated
 ## What the workflow actually exercises
 
 `.github/workflows/first-use.yml` uses native Ubuntu and Windows runners with Node 20
-and Node 24. Each job builds a tarball, verifies its bytes, installs that exact local
-tarball with an empty npm cache, offline and with install scripts disabled, and calls
+and Node 24. A Linux builder creates and accepts one tarball. Each native job downloads
+that same artifact, verifies its receipt and bytes, then installs it with an empty npm
+cache, offline and with install scripts disabled, and calls
 the generated command launcher. The candidate and installation directory contains
 Chinese characters and a space. Runtime versions, archive digests and check results
 come from the job's receipts; inspect the job, not merely the workflow definition.
 Windows checkout preserves repository line endings. A separate readback job verifies
 all native receipts and actual archive bytes, and requires one identical tarball hash
 across the matrix; passing different platform-local builds is not enough.
+The builder is intentionally separate: native Windows builds were observed to lose
+executable mode bits in archive headers even with unchanged source bytes. Consumer
+compatibility tests must install the same delivery artifact, not silently substitute
+an independently repacked one. Native source-build regression remains a separate test.
 
 The browser tool uses that installed package, a temporary synthetic home, and an
 independent headless Chromium. For both Chinese and English it checks:
@@ -76,6 +81,17 @@ npm ci --prefix tools/browser-qa --ignore-scripts --no-audit --no-fund
 node tools/browser-qa/node_modules/playwright/cli.js install chromium
 node tools/browser-qa/check-first-use.mjs /absolute/path/release.json /new/output/browser
 ```
+
+To accept a builder's artifact on another native OS without repacking it:
+
+```sh
+node scripts/pack-release.mjs --from-receipt /downloaded/release.json --out-dir /new/candidate
+```
+
+Keep the source receipt, `acceptance.json`, and tarball together. The consumer checks
+their hashes before creating its output, and produces its own installed-package
+acceptance receipt using its actual native runtime. These are local receipts, not
+cryptographic signatures or a claim that the candidate has been published.
 
 Linux CI uses its existing Chrome when available, otherwise installs Playwright's
 Chromium and system libraries on the disposable runner. Windows uses Playwright Chromium. Browser

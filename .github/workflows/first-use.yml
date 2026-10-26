@@ -13,8 +13,30 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
+  candidate:
+    name: Build the single candidate artifact
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
+        with:
+          node-version: '24'
+      - run: node scripts/pack-release.mjs --out-dir "$RUNNER_TEMP/agentgate-candidate"
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: candidate-package
+          retention-days: 7
+          if-no-files-found: error
+          path: |
+            ${{ runner.temp }}/agentgate-candidate/*.tgz
+            ${{ runner.temp }}/agentgate-candidate/release.json
+            ${{ runner.temp }}/agentgate-candidate/acceptance.json
   installed-package:
     name: ${{ matrix.os }} / Node ${{ matrix.node }}
+    needs: candidate
     strategy:
       fail-fast: false
       matrix:
@@ -37,14 +59,18 @@ jobs:
           node-version: ${{ matrix.node }}
       - name: Actual platform and runtime
         run: node -e "console.log(JSON.stringify({platform:process.platform,arch:process.arch,node:process.version,temporary:require('os').tmpdir()}))"
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
+        with:
+          name: candidate-package
+          path: ${{ runner.temp }}/candidate-package
       - name: Clean offline install and installed CLI acceptance
         run: |
           node -e "require('fs').mkdirSync(require('path').join(process.env.RUNNER_TEMP,'agentgate-first-use'),{recursive:true})"
-          node scripts/pack-release.mjs --out-dir "$RUNNER_TEMP/agentgate-first-use/中文 candidate"
+          node scripts/pack-release.mjs --from-receipt "$RUNNER_TEMP/candidate-package/release.json" --out-dir "$RUNNER_TEMP/agentgate-first-use/中文 candidate"
       - name: Install isolated browser test tooling
         run: npm ci --prefix tools/browser-qa --ignore-scripts --no-audit --no-fund
       - name: Package integrity and no-overwrite regression
-        run: node --test test/pack-release.test.mjs packages/release/test/release.test.mjs packages/release/test/staging-native.test.mjs tools/browser-qa/stream-capture.test.mjs
+        run: node --test test/pack-release.test.mjs packages/release/test/release.test.mjs packages/release/test/staging-native.test.mjs tools/browser-qa/stream-capture.test.mjs tools/browser-qa/check-matrix.test.mjs
       - name: Prepare Chromium-family browser on Linux
         if: runner.os == 'Linux'
         run: |
@@ -52,6 +78,7 @@ jobs:
             "$CHROME_BIN" --version
           else
             node tools/browser-qa/node_modules/playwright/cli.js install --with-deps chromium
+            echo 'CHROME_BIN=' >> "$GITHUB_ENV"
           fi
       - name: Install test Chromium on Windows
         if: runner.os == 'Windows'
