@@ -12,6 +12,9 @@ tarball with an empty npm cache, offline and with install scripts disabled, and 
 the generated command launcher. The candidate and installation directory contains
 Chinese characters and a space. Runtime versions, archive digests and check results
 come from the job's receipts; inspect the job, not merely the workflow definition.
+Windows checkout preserves repository line endings. A separate readback job verifies
+all native receipts and actual archive bytes, and requires one identical tarball hash
+across the matrix; passing different platform-local builds is not enough.
 
 The browser tool uses that installed package, a temporary synthetic home, and an
 independent headless Chromium. For both Chinese and English it checks:
@@ -74,7 +77,8 @@ node tools/browser-qa/node_modules/playwright/cli.js install chromium
 node tools/browser-qa/check-first-use.mjs /absolute/path/release.json /new/output/browser
 ```
 
-Linux CI installs Chromium's system libraries on its disposable runner. Browser
+Linux CI uses its existing Chrome when available, otherwise installs Playwright's
+Chromium and system libraries on the disposable runner. Windows uses Playwright Chromium. Browser
 receipts contain the actual OS, architecture, Node, Playwright and Chromium versions,
 individual assertions, downloaded report metadata and cleanup results. Failures exit
 nonzero. CI artifacts are retained for seven days; persist a reviewed summary and

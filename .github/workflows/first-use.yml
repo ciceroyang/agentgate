@@ -26,6 +26,9 @@ jobs:
       run:
         shell: bash
     steps:
+      - name: Preserve repository bytes on Windows
+        if: runner.os == 'Windows'
+        run: git config --global core.autocrlf false
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
         with:
           persist-credentials: false
@@ -42,9 +45,14 @@ jobs:
         run: npm ci --prefix tools/browser-qa --ignore-scripts --no-audit --no-fund
       - name: Package integrity and no-overwrite regression
         run: node --test test/pack-release.test.mjs packages/release/test/release.test.mjs packages/release/test/staging-native.test.mjs tools/browser-qa/stream-capture.test.mjs
-      - name: Install test Chromium on Linux
+      - name: Prepare Chromium-family browser on Linux
         if: runner.os == 'Linux'
-        run: node tools/browser-qa/node_modules/playwright/cli.js install --with-deps chromium
+        run: |
+          if [ -n "${CHROME_BIN:-}" ] && [ -x "$CHROME_BIN" ]; then
+            "$CHROME_BIN" --version
+          else
+            node tools/browser-qa/node_modules/playwright/cli.js install --with-deps chromium
+          fi
       - name: Install test Chromium on Windows
         if: runner.os == 'Windows'
         run: node tools/browser-qa/node_modules/playwright/cli.js install chromium
@@ -67,3 +75,20 @@ jobs:
             ${{ runner.temp }}/agentgate-first-use/browser/server.log
             ${{ runner.temp }}/agentgate-first-use/browser/downloads/*.html
             ${{ runner.temp }}/agentgate-first-use/browser/screenshots/*.png
+  same-package:
+    name: Verify identical accepted package across native platforms
+    needs: installed-package
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
+        with:
+          node-version: '24'
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
+        with:
+          pattern: first-use-*
+          path: native-results
+      - run: node tools/browser-qa/check-matrix.mjs native-results
