@@ -61,6 +61,12 @@ try {
     reject(manifestProblems(pkg, server, plugin))
     // A supplied output directory must be new: never overwrite an earlier acceptance result.
     const output = args.length ? resolve(args[1]) : mkdtempSync(join(tmpdir(), "agentgate-release-"))
+    // npm's generated cmd-shim expands its own directory in an unquoted SET.
+    // Native acceptance proved '&' splits it before AgentGate starts. Do not patch
+    // npm, bypass its launcher, or mislabel a direct Node run as a shim pass.
+    if (process.platform === "win32" && /[&%]/.test(output)) {
+      throw new Error("Windows npm command launcher requires an acceptance directory without & or %; choose a new writable directory (Unicode and spaces are supported). No installed-launcher success is claimed for this path.")
+    }
     if (args.length) mkdirSync(output, { mode: 0o700 })
     progress = createProgressJournal(join(output, "progress.jsonl"), [
       "npm pack", "list packed archive", "extract packed archive", "npm install",

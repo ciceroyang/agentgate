@@ -1,6 +1,6 @@
 import test from "node:test"
 import assert from "node:assert/strict"
-import { appendFileSync, readFileSync } from "node:fs"
+import { appendFileSync, existsSync, readFileSync } from "node:fs"
 import { dirname, join, resolve } from "node:path"
 import { fileURLToPath } from "node:url"
 import { spawnSync } from "node:child_process"
@@ -11,7 +11,7 @@ const script = join(ROOT, "scripts/pack-release.mjs")
 const run = args => spawnSync(process.execPath, [script, ...args], { cwd: ROOT, encoding: "utf8", timeout: 120000 })
 
 test("the release gate accepts the actual tarball and refuses later byte changes or overwrites", () => {
-  const output = join(scratchDir("ag-release-test-"), "中文 & % candidate")
+  const output = join(scratchDir("ag-release-test-"), process.platform === "win32" ? "中文 candidate" : "中文 & % candidate")
   const result = run(["--out-dir", output])
   assert.equal(result.status, 0, result.stdout + result.stderr)
   const receipt = JSON.parse(result.stdout)
@@ -39,6 +39,14 @@ test("the release gate accepts the actual tarball and refuses later byte changes
   const changed = run(["--verified-path", receipt.receipt])
   assert.equal(changed.status, 1)
   assert.match(changed.stderr, /安装包在验收后发生变化/)
+})
+
+test("Windows rejects npm cmd-shim metacharacter paths before installation, without claiming compatibility", { skip: process.platform !== "win32" }, () => {
+  const output = join(scratchDir("ag-release-path-"), "中文 & % candidate")
+  const result = run(["--out-dir", output])
+  assert.equal(result.status, 1)
+  assert.match(result.stderr, /Windows npm command launcher.*without & or %/)
+  assert.equal(existsSync(output), false, "failed preflight must not create candidate or install files")
 })
 
 test("CI checks delivered packages and publish names the verified tarball instead of repacking", () => {

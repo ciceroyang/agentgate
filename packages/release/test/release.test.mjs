@@ -31,12 +31,20 @@ test("a tarball with a missing file, a leak or an unexplained path is classified
   assert.deepEqual(classified.missing, ["LICENSE"])
   assert.equal(REQUIRED_FILES.indexOf("bin/agentgate.mjs") !== -1, true)
   assert.deepEqual(classified.leaks.map(function (leak) { return leak.path }), ["data/index.json"])
-  assert.deepEqual(classified.unexplained, ["package.json", "README.md", "server.json", "CHANGELOG.md", "docs/operations/upgrade.md", "docs/notes.md"])
+  assert.deepEqual(classified.unexplained, ["package.json", "README.md", "server.json", "CHANGELOG.md", "docs/operations/upgrade.md", "data/sample-index.json", "site/inventory.html", "site/en/inventory.html", "site/inventory-page.mjs", "site/favicon.svg", "examples/inventory/tools.json", "docs/notes.md"])
 })
 
 test("a .env, a ledger and a tarball inside the package are all leaks", function () {
   const leaks = classifyPack([".env", "smtp.env", "data/history/ledger.jsonl", "dist/x.tgz", "a/b.log", "node_modules/x.js"], { allow: [] })
   assert.equal(leaks.leaks.length, 6)
+})
+
+test("a release cannot omit the assets needed for a first inventory report", () => {
+  const assets = ["data/sample-index.json", "site/inventory.html", "site/en/inventory.html", "site/inventory-page.mjs", "site/favicon.svg", "examples/inventory/tools.json", "packages/inventory/src/inventory.mjs", "packages/inventory/src/report.mjs"]
+  for (const asset of assets) {
+    const result = classifyPack(REQUIRED_FILES.filter(file => file !== asset), { allow: ["site/", "data/", "packages/", "examples/"] })
+    assert.ok(result.missing.includes(asset), "the release gate did not require " + asset)
+  }
 })
 
 test("a warning does not block a release and a problem does", function () {

@@ -7,6 +7,7 @@ import { spawn, spawnSync } from 'node:child_process';
 import { mkdirSync, readFileSync, writeFileSync, realpathSync } from 'node:fs';
 import { createRequire } from 'node:module';
 import { basename, dirname, isAbsolute, join, resolve } from 'node:path';
+import { createCapture } from './stream-capture.mjs';
 
 const markers = ['SYNTHETIC_QA_ARG_SECRET', 'SYNTHETIC_QA_ENV_SECRET', 'SYNTHETIC_QA_HEADER_SECRET', 'SYNTHETIC_QA_URL_SECRET'];
 const hasSecret = value => markers.some(marker => String(value).includes(marker));
@@ -40,6 +41,8 @@ async function main(receiptPath, output) {
     checks, pageErrors, consoleMessages, requests, violations,
   };
   let browser, browserServer, server, serverDone, serverOutput = '', serverError = '', origin;
+  const stdoutCapture = createCapture(markers), stderrCapture = createCapture(markers);
+  const serverSecretExposed = () => stdoutCapture.secretExposed || stderrCapture.secretExposed;
   let currentRoute = 'setup';
   const directory = name => { const path = join(output, name); mkdirSync(path, { mode: 0o700 }); return path; };
   const home = directory('synthetic-home'), temporary = directory('temporary'), project = directory('synthetic-project');
@@ -180,8 +183,10 @@ require('node:module').syncBuiltinESMExports();\n`);
         server.once('error', error => resolveDone({ errorCode: error.code }));
         server.once('close', (code, signal) => resolveDone({ code, signal }));
       });
-      server.stdout.on('data', bytes => { serverOutput = (serverOutput + bytes.toString()).slice(-65536); });
-      server.stderr.on('data', bytes => { serverError = (serverError + bytes.toString()).slice(-65536); });
+      server.stdout.on('data', bytes => { stdoutCapture.push(bytes); serverOutput = stdoutCapture.text; });
+      server.stderr.on('data', bytes => { stderrCapture.push(bytes); serverError = stderrCapture.text; });
+      server.stdout.on('end', () => { stdoutCapture.push(''); serverOutput = stdoutCapture.text; });
+      server.stderr.on('end', () => { stderrCapture.push(''); serverError = stderrCapture.text; });
       const deadline = performance.now() + 15000;
       while (performance.now() < deadline) {
         const match = serverOutput.match(/agentgate serving (http:\/\/127\.0\.0\.1:\d+)/);
@@ -380,7 +385,7 @@ require('node:module').syncBuiltinESMExports();\n`);
       assert.deepEqual(violations, []);
       assert.deepEqual(pageErrors, [], 'Browser page errors were recorded');
       assert.equal(consoleMessages.some(item => item.secretExposed), false);
-      assert.equal(hasSecret(serverOutput + serverError), false);
+      assert.equal(serverSecretExposed(), false);
       assert.deepEqual([codex, raw].map(file => digest(readFileSync(file))), sourceBefore);
       assert.equal(requests.some(item => item.route !== 'zh-load' && item.route !== 'en-load'), false, 'Inventory interaction made a network request');
       return { requests: requests.length, violations: violations.length, pageErrors: pageErrors.length, sourceUnchanged: true };
@@ -407,7 +412,7 @@ require('node:module').syncBuiltinESMExports();\n`);
     await check('final-diagnostic-privacy', () => {
       assert.equal(commands.some(item => item.secretExposed), false);
       assert.equal(consoleMessages.some(item => item.secretExposed), false);
-      assert.equal(hasSecret(serverOutput + serverError), false);
+      assert.equal(serverSecretExposed(), false);
       assert.deepEqual(violations, []);
       assert.deepEqual(pageErrors, []);
       return { syntheticSecretExposed: false, pageErrors: pageErrors.length, blockedRequests: violations.length };
