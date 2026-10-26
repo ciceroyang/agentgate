@@ -2,6 +2,8 @@
 const MAX_BYTES = 1024 * 1024
 const MAX_ENTRIES = 500
 const INPUT_FIELDS = ['name', 'server', 'package', 'registry', 'version']
+const DOCUMENT_CONTROLS = /[\u0000-\u0008\u000B\u000C\u000E-\u001F\u007F-\u009F]/
+const FIELD_CONTROLS = /[\u0000-\u001F\u007F-\u009F]/
 const SEVERITIES = ['critical', 'high', 'medium', 'low', 'info']
 const LABELS_ZH = {
   matched: '版本与证据对应', unmatched: '当前索引未找到', ambiguous: '需要确认候选',
@@ -18,6 +20,36 @@ const nonempty = (value) => typeof value === 'string' && value.trim().length > 0
 const textOrNull = (value) => typeof value === 'string' ? value : null
 const own = (value, key) => object(value) && Object.hasOwn(value, key)
 const npmName = (value) => typeof value === 'string' && /^(?:@[a-z0-9-][a-z0-9._-]*\/)?[a-z0-9-][a-z0-9._-]*$/.test(value)
+
+/** Decode only supported text encodings; never silently replace malformed input bytes. */
+export function decodeInventoryFile(bytes, options = {}) {
+  const msg = (zh, en) => options?.locale === 'en' ? en : zh
+  if (!(bytes instanceof Uint8Array) && !(bytes instanceof ArrayBuffer)) {
+    throw new Error(msg('请提供 Uint8Array 或 ArrayBuffer 文件字节。', 'Provide file bytes as a Uint8Array or ArrayBuffer.'))
+  }
+  let view
+  try { view = bytes instanceof Uint8Array ? bytes : new Uint8Array(bytes) }
+  catch { throw new Error(msg('无法读取文件字节。', 'The file bytes cannot be read.')) }
+  if (view.byteLength > MAX_BYTES) throw new Error(msg('清单不能超过 1 MB。', 'The inventory cannot exceed 1 MB.'))
+  if ((view[0] === 0xff && view[1] === 0xfe && view[2] === 0 && view[3] === 0) ||
+      (view[0] === 0 && view[1] === 0 && view[2] === 0xfe && view[3] === 0xff)) {
+    throw new Error(msg('不支持 UTF-32 文件，请保存为 UTF-8 或带 BOM 的 UTF-16。', 'UTF-32 files are not supported. Save as UTF-8 or UTF-16 with a BOM.'))
+  }
+  const encoding = view[0] === 0xff && view[1] === 0xfe ? 'utf-16le'
+    : view[0] === 0xfe && view[1] === 0xff ? 'utf-16be' : 'utf-8'
+  try { return new TextDecoder(encoding, { fatal: true }).decode(view) }
+  catch { throw new Error(msg('文件编码损坏或不受支持，请保存为 UTF-8 或带 BOM 的 UTF-16。', 'The file encoding is malformed or unsupported. Save as UTF-8 or UTF-16 with a BOM.')) }
+}
+
+function looksLikeLaunchConfig(text) {
+  // Recognizable configuration syntax is not an inventory. This is deliberately not
+  // a general secret detector: arbitrary tool names remain valid Unicode text.
+  // A preamble or comment must not turn later JSON objects/arrays or TOML sections
+  // into tool-name lines. Structured inventories must be valid JSON as a whole.
+  return /^[^\S\r\n]*[\[{]/m.test(text) ||
+    /^[^\S\r\n]*(?:[{},-][^\S\r\n]*)?["']?(?:mcp_servers|mcpServers)["']?[^\S\r\n]*(?:[=:]|\.[^\r\n]*[=:])/im.test(text) ||
+    /^[^\S\r\n]*(?:[{},-][^\S\r\n]*)?["']?(?:command|args|env|http_headers|env_http_headers|bearer_token_env_var|headers)["']?[^\S\r\n]*(?:[=:]|\.[^\r\n]*[=:])/im.test(text)
+}
 
 function exactVersion(value, registry) {
   if (!nonempty(value) || !/\d/.test(value) || /[\s*^~<>=|,\[\](){}\/]/.test(value) || /(?:^|[.\-_])x(?:$|[.\-_])/i.test(value)) return false
@@ -42,6 +74,10 @@ function fromName(value) {
 
 function normalizeInput(value, position, locale) {
   const msg = (zh, en) => locale === 'en' ? en : zh
+  const rejectControls = (item) => {
+    if (typeof item === 'string' && FIELD_CONTROLS.test(item)) throw new Error(msg('清单字段不能包含控制字符。', 'Inventory fields must not contain control characters.'))
+  }
+  rejectControls(value)
   if (typeof value === 'string' && nonempty(value)) return fromName(value)
   if (!object(value) || Object.keys(value).some((key) => !INPUT_FIELDS.includes(key))) {
     throw new Error(msg('第 ' + position + ' 项格式不支持：只接受名称或 name/server/package/registry/version 字段，不接受启动配置、环境变量或凭据。', 'Item ' + position + ' is not supported. Use a name or the name/server/package/registry/version fields; do not provide launch configuration, environment variables, or credentials.'))
@@ -50,6 +86,7 @@ function normalizeInput(value, position, locale) {
   for (const field of INPUT_FIELDS) {
     const item = value[field]
     if (item !== undefined && item !== null && typeof item !== 'string') throw new Error(msg('第 ' + position + ' 项的 ' + field + ' 必须是文本或 null。', 'The ' + field + ' field in item ' + position + ' must be text or null.'))
+    rejectControls(item)
     result[field] = typeof item === 'string' && item.trim() ? item.trim() : null
   }
   result.name = result.name || result.server || result.package
@@ -60,19 +97,24 @@ function normalizeInput(value, position, locale) {
 export function parseInventory(text, options = {}) {
   const locale = options?.locale === 'en' ? 'en' : 'zh'
   const msg = (zh, en) => locale === 'en' ? en : zh
+  const format = options?.format === undefined ? 'auto' : options.format
+  if (!['auto', 'json', 'text'].includes(format)) throw new Error(msg('清单格式必须为 auto、json 或 text。', 'The inventory format must be auto, json, or text.'))
   if (typeof text !== 'string') throw new Error(msg('请提供文本清单或 JSON 文本。', 'Provide a plain-text inventory or JSON text.'))
   if (text.length > MAX_BYTES || new TextEncoder().encode(text).length > MAX_BYTES) throw new Error(msg('清单不能超过 1 MB。', 'The inventory cannot exceed 1 MB.'))
+  if (DOCUMENT_CONTROLS.test(text)) throw new Error(msg('清单包含不允许的控制字符，请检查文件编码并只提供工具名称和版本。', 'The inventory contains unsupported control characters. Check the file encoding and provide tool names and versions only.'))
   const trimmed = text.trim()
-  if (!trimmed) return []
+  if (!trimmed && format !== 'json') return []
   let values
-  if (/^[\[{]/.test(trimmed)) {
+  const startsJSON = /^[\[{]/.test(trimmed)
+  if (format === 'text' && startsJSON) throw new Error(msg('文本模式不接受 JSON 或配置结构，请改用 JSON 模式或每行一个工具名称。', 'Text mode does not accept JSON or configuration structures. Use JSON mode or one tool name per line.'))
+  if (format === 'json' || startsJSON) {
     let parsed
     try { parsed = JSON.parse(trimmed) } catch { throw new Error(msg('JSON 格式错误，请使用数组或 {"tools":[...]}。', 'Invalid JSON. Use an array or {"tools":[...]}.')) }
     if (Array.isArray(parsed)) values = parsed
     else if (object(parsed) && Object.keys(parsed).length === 1 && own(parsed, 'tools') && Array.isArray(parsed.tools)) values = parsed.tools
     else throw new Error(msg('JSON 只接受数组或 {"tools":[...]}；不能导入 mcpServers、env 或其它配置结构。', 'JSON must be an array or {"tools":[...]}. mcpServers, env, and other configuration structures are not accepted.'))
   } else {
-    if (/^\s*["']?(?:mcpServers|env)["']?\s*:/im.test(trimmed)) throw new Error(msg('不能导入 mcpServers 或 env 配置，请只粘贴工具名称和版本。', 'Do not import mcpServers or env configuration. Paste tool names and versions only.'))
+    if (looksLikeLaunchConfig(trimmed)) throw new Error(msg('不能导入启动配置、环境变量或请求头，请只提供工具名称和版本；本地配置请先使用 discover。', 'Do not import launch configuration, environment variables, or headers. Provide tool names and versions only; use discover for local configuration first.'))
     values = trimmed.split(/\r?\n/).map((line) => line.trim()).filter(Boolean)
   }
   if (values.length > MAX_ENTRIES) throw new Error(msg('一次最多支持 500 项工具。', 'A single inventory can contain at most 500 tools.'))

@@ -19,7 +19,6 @@ export const SCHEMA_VERSION = 1
 const NPM_NAME = /^(?:@[a-z0-9-][a-z0-9._-]*\/)?[a-z0-9-][a-z0-9._-]*$/i
 const NPM_SPEC = /^((?:@[a-z0-9-][a-z0-9._-]*\/)?[a-z0-9-][a-z0-9._-]*)@([0-9][0-9A-Za-z.+-]*)$/
 const PYPI_SPEC = /^([A-Za-z0-9][A-Za-z0-9._-]*)==([0-9][0-9A-Za-z.+-]*)$/
-const JUMP = ["dlx", "exec", "run", "x", "-y", "--yes", "--node-options"]
 const JS_RUNNERS = ["npx", "bunx", "pnpx", "pnpm", "yarn"]
 const PY_RUNNERS = ["uvx", "pipx", "uv"]
 
@@ -38,28 +37,50 @@ export function runnerOf(command) {
  * purpose: "npx -y @scope/thing --token=..." should yield the package and nothing else.
  */
 export function packageOf(command, args) {
-  const runner = runnerOf(command)
-  const list = Array.isArray(args) ? args.filter(function (a) { return typeof a === "string" }) : []
-  if (runner === "node" || runner === "python" || runner === "python3" || runner === "deno") return null
+  const basename = runnerOf(command)
+  const windowsAlias = basename.toLowerCase()
+  // Recognize only these complete launcher names, not arbitrary suffixes or shell wrappers.
+  const runner = windowsAlias === "npx.cmd" ? "npx" : windowsAlias === "uvx.exe" ? "uvx" : basename
+  if (!Array.isArray(args)) return null
   const jsRunner = JS_RUNNERS.indexOf(runner) !== -1
   const pyRunner = PY_RUNNERS.indexOf(runner) !== -1
   if (!jsRunner && !pyRunner) return null
-  for (const arg of list) {
-    if (arg.charAt(0) === "-") continue
-    if (JUMP.indexOf(arg) !== -1) continue
-    if (jsRunner) {
-      const pinned = NPM_SPEC.exec(arg)
-      if (pinned) return { registry: "npm", package: pinned[1], version: pinned[2] }
-      if (NPM_NAME.test(arg)) return { registry: "npm", package: arg, version: null }
-    }
-    if (pyRunner) {
-      const pinned = PYPI_SPEC.exec(arg)
-      if (pinned) return { registry: "pypi", package: pinned[1], version: pinned[2] }
-      if (/^[A-Za-z0-9][A-Za-z0-9._-]*$/.test(arg)) return { registry: "pypi", package: arg, version: null }
-    }
-    // The first positional argument is the thing being run; later ones are its arguments.
-    break
+
+  // These are execution syntaxes, not words to skip wherever they occur. In particular,
+  // pnpm/yarn run or exec and uv run may name project scripts instead of registry packages.
+  let index = 0
+  if (runner === "pnpm" || runner === "yarn") {
+    if (args[0] !== "dlx") return null
+    index = 1
+  } else if (runner === "pipx") {
+    if (args[0] !== "run") return null
+    index = 1
+  } else if (runner === "uv") {
+    if (args[0] !== "tool" || args[1] !== "run") return null
+    index = 2
   }
+
+  // Intentionally support only these no-value flags. Unknown, value-taking and inline
+  // options leave identity unresolved: scanning past them could publish a private value.
+  if (runner === "npx") {
+    while (args[index] === "-y" || args[index] === "--yes") index++
+    if (args[index] === "--") index++
+  } else if (runner === "bunx") {
+    while (args[index] === "--bun") index++
+  }
+  const arg = args[index]
+  if (typeof arg !== "string" || !arg || arg.trim() !== arg || arg.charAt(0) === "-") return null
+  if (jsRunner) {
+    const pinned = NPM_SPEC.exec(arg)
+    if (pinned) return { registry: "npm", package: pinned[1], version: pinned[2] }
+    if (NPM_NAME.test(arg)) return { registry: "npm", package: arg, version: null }
+  }
+  if (pyRunner) {
+    const pinned = PYPI_SPEC.exec(arg)
+    if (pinned) return { registry: "pypi", package: pinned[1], version: pinned[2] }
+    if (/^[A-Za-z0-9][A-Za-z0-9._-]*$/.test(arg)) return { registry: "pypi", package: arg, version: null }
+  }
+  // Only the first proven package position is inspected; trailing arguments are private.
   return null
 }
 
@@ -89,19 +110,26 @@ export function transportOf(entry) {
   return "unknown"
 }
 
+function unsupportedMcpJson() {
+  // Never include a rejected value, name, credential or parser message here.
+  return Object.assign(new Error("Unsupported MCP JSON structure"), { code: "unsupported-mcp-json" })
+}
+
 function entriesFromMap(map, projectPath) {
   const out = []
   if (Array.isArray(map)) {
     for (const item of map) {
       if (typeof item === "string" && item.trim()) out.push({ name: item.trim(), entry: {}, projectPath: projectPath || null })
       else if (isObject(item) && typeof item.name === "string" && item.name.trim()) out.push({ name: item.name.trim(), entry: item, projectPath: projectPath || null })
+      else throw unsupportedMcpJson()
     }
     return out
   }
-  if (!isObject(map)) return out
+  if (!isObject(map)) throw unsupportedMcpJson()
   for (const name of Object.keys(map)) {
     const entry = map[name]
-    out.push({ name: name, entry: isObject(entry) ? entry : {}, projectPath: projectPath || null })
+    if (!name.trim() || !isObject(entry)) throw unsupportedMcpJson()
+    out.push({ name: name, entry: entry, projectPath: projectPath || null })
   }
   return out
 }
@@ -111,14 +139,17 @@ export function serversIn(doc, shape) {
   const out = []
   if (!isObject(doc)) return out
   if (shape === "claude-projects") {
-    if (!isObject(doc.projects)) return out
+    if (!Object.hasOwn(doc, "projects")) return out
+    if (!isObject(doc.projects)) throw unsupportedMcpJson()
     for (const projectPath of Object.keys(doc.projects)) {
       const project = doc.projects[projectPath]
-      if (!isObject(project)) continue
+      if (!isObject(project)) throw unsupportedMcpJson()
+      if (!Object.hasOwn(project, "mcpServers")) continue
       for (const item of entriesFromMap(project.mcpServers, projectPath)) out.push(item)
     }
     return out
   }
+  if (!Object.hasOwn(doc, shape)) return out
   for (const item of entriesFromMap(doc[shape], null)) out.push(item)
   return out
 }
@@ -166,7 +197,8 @@ export function discover(options) {
     try {
       items = candidate.parser === "toml" ? parseCodexMcpToml(text) : serversIn(JSON.parse(text), candidate.shape)
     } catch (error) {
-      const reason = candidate.parser === "toml" ? (error.code === "unsupported-mcp-toml" ? "unsupported-mcp-toml" : "invalid-toml") : "invalid-json"
+      const reason = candidate.parser === "toml" ? (error.code === "unsupported-mcp-toml" ? "unsupported-mcp-toml" : "invalid-toml")
+        : error.code === "unsupported-mcp-json" ? "unsupported-mcp-json" : "invalid-json"
       sources.push(Object.assign({}, candidate, { status: "unparsed", reason, servers: 0 }))
       continue
     }

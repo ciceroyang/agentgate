@@ -7,7 +7,7 @@
  *   agentgate version
  */
 import { existsSync, readFileSync, writeFileSync, statSync } from "node:fs"
-import { basename, dirname, join, resolve } from "node:path"
+import { basename, dirname, extname, join, resolve } from "node:path"
 import { homedir } from "node:os"
 import { fileURLToPath } from "node:url"
 import { execFileSync, spawnSync } from "node:child_process"
@@ -26,7 +26,7 @@ import { toHtmlReport } from "../packages/policy/src/html-report.mjs"
 import { diffIndex, renderDiff } from "../packages/history/src/diff.mjs"
 import { readLedger, verifyLedger, backfill } from "../packages/history/src/ledger.mjs"
 import { createProxy } from "../packages/gateway/src/proxy.mjs"
-import { parseInventory, createInventoryReport } from "../packages/inventory/src/inventory.mjs"
+import { decodeInventoryFile, parseInventory, createInventoryReport } from "../packages/inventory/src/inventory.mjs"
 import { appendWatch, readWatch, verifyWatch, webhookPayload } from "../packages/watch/src/watch.mjs"
 import { frameworkById, renderFrameworkText } from "../packages/policy/src/framework.mjs"
 import { renderInventoryReport } from "../packages/inventory/src/report.mjs"
@@ -49,6 +49,12 @@ function parse(argv) {
     else args.rest.push(a)
   }
   return args
+}
+
+/** Keep byte decoding and explicit JSON file intent identical for every inventory consumer. */
+function readInventoryFile(input) {
+  const text = decodeInventoryFile(readFileSync(input))
+  return parseInventory(text, { format: extname(input).toLowerCase() === ".json" ? "json" : "auto" })
 }
 
 /** Where the index lives when the user did not say. A refreshed index is written next to the
@@ -270,7 +276,7 @@ async function watchCommand(flags) {
   let entries
   let index
   try {
-    entries = parseInventory(readFileSync(flags.input, "utf8"))
+    entries = readInventoryFile(flags.input)
   } catch (error) { console.error("watch: " + error.message); process.exit(3) }
   try {
     index = JSON.parse(readFileSync(indexPath, "utf8"))
@@ -400,7 +406,7 @@ function inventory(flags) {
     // An explicit index must never silently fall back to the committed sample.
     const indexPath = flags.index || process.env.AGENTGATE_INDEX || chosen.path
     if (statSync(flags.input).size > 1024 * 1024) throw new Error("工具清单不能超过 1 MB。")
-    const entries = parseInventory(readFileSync(flags.input, "utf8"))
+    const entries = readInventoryFile(flags.input)
     const index = JSON.parse(readFileSync(indexPath, "utf8"))
     if (!index || !Array.isArray(index.records)) throw new Error("证据索引缺少 records 列表，无法生成报告。")
     let framework = null
@@ -556,7 +562,7 @@ function packCommand(flags) {
   let framework
   try { framework = frameworkById(frameworkId) } catch (error) { console.error("pack: " + error.message); process.exit(3) }
   let entries
-  try { entries = parseInventory(readFileSync(String(flags.input), "utf8")) } catch (error) { console.error("pack: " + error.message); process.exit(2) }
+  try { entries = readInventoryFile(String(flags.input)) } catch (error) { console.error("pack: " + error.message); process.exit(2) }
   // An explicit --index is a decision, not a preference: falling back to the packaged sample
   // would build a customer-facing pack out of a demonstration index.
   const explicit = flags.index || process.env.AGENTGATE_INDEX || null

@@ -2,6 +2,9 @@ name: test
 
 on:
   push:
+    # The isolated platform-validation branch has its own installed-package/browser
+    # matrix. Main and PR checks remain unchanged; this is not a full-suite pass.
+    branches-ignore: [codex/agentgate-platform-acceptance-20261026]
   pull_request:
 
 jobs:

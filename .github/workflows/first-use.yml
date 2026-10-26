@@ -1,0 +1,52 @@
+name: Native first-use acceptance
+
+on:
+  push:
+    branches: [codex/agentgate-platform-acceptance-20261026]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: first-use-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  installed-package:
+    name: ${{ matrix.os }} / Node ${{ matrix.node }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-24.04, windows-2022]
+        node: ['20', '24']
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 15
+    defaults:
+      run:
+        shell: bash
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
+        with:
+          node-version: ${{ matrix.node }}
+      - name: Actual platform and runtime
+        run: node -e "console.log(JSON.stringify({platform:process.platform,arch:process.arch,node:process.version}))"
+      - name: Clean offline install and installed CLI acceptance
+        run: |
+          node -e "require('fs').mkdirSync(require('path').join(process.env.RUNNER_TEMP,'agentgate-first-use'),{recursive:true})"
+          node scripts/pack-release.mjs --out-dir "$RUNNER_TEMP/agentgate-first-use/中文 & % candidate"
+      - name: Retain exact candidate and failure-stage evidence
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: first-use-${{ matrix.os }}-node${{ matrix.node }}
+          retention-days: 7
+          if-no-files-found: error
+          path: |
+            ${{ runner.temp }}/agentgate-first-use/**/*.tgz
+            ${{ runner.temp }}/agentgate-first-use/**/release.json
+            ${{ runner.temp }}/agentgate-first-use/**/acceptance.json
+            ${{ runner.temp }}/agentgate-first-use/**/*.jsonl

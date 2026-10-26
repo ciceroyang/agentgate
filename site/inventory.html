@@ -3,6 +3,19 @@
 <meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self'; style-src 'unsafe-inline'; connect-src 'none'; img-src 'self'; frame-src 'self' about:; base-uri 'none'; form-action 'none'">
 <meta name="referrer" content="no-referrer">
 <title>我的工具清单 · agentgate</title>
+<style>
+.start-grid{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:16px;margin-top:18px}
+.start-card{border:1px solid var(--line);border-radius:7px;padding:18px;display:flex;flex-direction:column;align-items:flex-start}
+.start-card p{font-size:13px;color:var(--muted);flex:1}.start-card .btn{text-decoration:none;margin-top:12px}
+.start-card:first-child{background:var(--soft)}.discovery-guide{border-top:1px solid var(--line);padding-top:18px;margin-top:22px}
+.discovery-guide summary{font-size:14px;cursor:pointer;color:var(--accent)}.discovery-guide ol{padding-left:22px}
+.discovery-guide li{margin:12px 0}.discovery-guide pre{overflow-wrap:anywhere}.discovery-guide p{font-size:13px;color:var(--muted)}
+.item-card{overflow-wrap:anywhere}
+.item-top>div{min-width:0}
+.file-area input{max-width:100%;min-width:0}
+.snapshot,pre,.status,.error{overflow-wrap:anywhere}
+@media(max-width:700px){.start-grid{grid-template-columns:1fr}}
+</style>
 <meta name="description" content="在浏览器本地，将自己的工具清单对照已有证据目录，确认版本与未知项，导出一份静态报告。">
 <link rel="canonical" href="https://xn--5kvo87g.com/inventory.html"><link rel="alternate" hreflang="zh-CN" href="https://xn--5kvo87g.com/inventory.html"><link rel="alternate" hreflang="en" href="https://xn--5kvo87g.com/en/inventory.html">
 <link rel="icon" href="./favicon.svg" type="image/svg+xml">
@@ -23,8 +36,23 @@
 <noscript><p class="error">需要启用 JavaScript 才能在本地核对清单。页面不会将清单发送到服务器。</p></noscript>
 <div id="page-error" class="error" role="alert" tabindex="-1" hidden></div>
 
+<section class="panel" aria-labelledby="start-heading">
+<p class="eyebrow">从这里开始</p><h2 id="start-heading">不知道工具名，也可以开始</h2>
+<p class="section-note">MCP 工具是 AI 应用连接文件、代码仓库或其他服务的接口。你不需要先记住它们的名称，也不需要为了试用而安装任何 MCP 工具。</p>
+<div class="start-grid">
+<article class="start-card"><h3>先看看能得到什么</h3><p>用演示清单直接生成一份报告，看看已知、未知和下一步如何呈现；不会读取你的电脑。</p><button id="example-button" class="btn btn-primary" type="button" disabled>直接查看演示报告</button></article>
+<article class="start-card"><h3>已经有一份清单</h3><p>粘贴名称，或导入 TXT / JSON 文件。只知道名字也能开始，实际版本可以稍后确认。</p><a class="btn" href="#inventory-input">粘贴或导入清单</a></article>
+<article class="start-card"><h3>不知道自己用了什么</h3><p>由你在本机运行发现命令，从支持的 AI 应用配置中整理清单；网页不会自动读取配置。</p><button id="discover-button" class="btn" type="button" aria-controls="discovery-guide">帮我找到清单</button></article>
+</div>
+<details id="discovery-guide" class="discovery-guide"><summary id="discovery-summary">在本机找到清单，再导入这里</summary>
+<ol><li><strong>另开一个终端，进入你自己新建的空工作文件夹。</strong><p>需要 Node.js 20 或更新版本。不要在 AgentGate 源码目录里运行下面的 npx 命令，以免同名本地包影响命令解析；让当前网页服务继续运行。</p></li>
+<li><strong>运行本地发现命令。</strong><pre><code>npx --yes --ignore-scripts @zhiliangtech/agentgate@0.6.0 discover --format inventory --out agentgate-tools.json</code></pre><p>这会检查支持的主目录与当前目录配置（包括 Codex MCP 配置），不会启动其中的工具，也不会导出环境变量、请求头或完整命令参数；npx 首次获取 AgentGate 包可能联网，discover 本身不联网。文件写入当前文件夹，终端会显示绝对位置；同名文件不会被覆盖。</p><p>项目专用配置不在当前目录？在命令中加 <code>--roots "/你的项目绝对路径"</code> 指定项目目录。它只检查支持的配置位置，不会递归扫描整台电脑。</p></li>
+<li><strong>选择导出的文件，再点“核对清单”。</strong><p><a href="#inventory-file">到下方导入 agentgate-tools.json</a>；不要导入原始 AI 应用配置，因为其中可能包含凭据。清单只代表发现的配置，不证明工具正在运行。</p></li></ol>
+<p><strong>没找到工具也可以试用：</strong>空清单只表示在所查位置没有发现可导出的配置，不代表电脑没有任何 MCP 工具；可先查看演示，不必安装工具来凑清单。若终端提示有配置未读成，先处理提示，不能把导出结果当作完整清单。</p>
+</details></section>
+
 <section class="panel" aria-labelledby="input-heading">
-<div class="panel-head"><div><p class="eyebrow">01 / Your inventory</p><h2 id="input-heading">先告诉我们，你在用什么</h2></div><span class="meta">TXT / JSON · 最大 1 MB</span></div>
+<div class="panel-head"><div><p class="eyebrow">01 / Your inventory</p><h2 id="input-heading">导入你自己的工具清单</h2></div><span class="meta">TXT / JSON · 最大 1 MB</span></div>
 <form id="inventory-form">
 <div class="input-grid"><div>
 <label for="inventory-input">工具清单</label>
@@ -35,8 +63,8 @@
   { "name": "@组织/包名",
     "version": "1.2.3" }
 ]</pre></details></aside></div>
-<p id="demo-note" class="demo-note" hidden>正在使用演示清单，不代表你的实际安装。导出的报告也会标明“演示报告”。</p>
-<div class="actions"><button id="compare-button" class="btn btn-primary" type="submit" disabled>核对清单</button><button id="example-button" class="btn" type="button" disabled>试用演示清单</button><button id="reset-button" class="btn btn-quiet" type="button">重置</button></div>
+<p id="demo-note" class="demo-note" hidden>正在使用演示清单，不代表你的实际安装。导出的报告也会标明“演示报告”；改用自己的清单时，请先重置或导入文件。</p>
+<div class="actions"><button id="compare-button" class="btn btn-primary" type="submit" disabled>核对清单</button><button id="reset-button" class="btn btn-quiet" type="button">重置</button></div>
 </form><p id="work-status" class="status" role="status" aria-live="polite">加载目录后即可开始。</p>
 </section>
 

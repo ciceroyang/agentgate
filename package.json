@@ -52,6 +52,7 @@
     "packages/",
     "data/sample-index.json",
     "site/inventory.html",
+    "site/en/inventory.html",
     "site/inventory-page.mjs",
     "site/favicon.svg",
     "examples/inventory/",

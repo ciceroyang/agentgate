@@ -1,4 +1,4 @@
-import { parseInventory, createInventoryReport } from "./inventory.mjs";
+import { decodeInventoryFile, parseInventory, createInventoryReport } from "./inventory.mjs";
 import { renderInventoryReport } from "./inventory-report.mjs";
 
 const MAX_BYTES = 1024 * 1024;
@@ -15,6 +15,7 @@ let reportHtml = null;
 let demonstration = false;
 let revision = 0;
 let downloadUrl = null;
+let pendingImport = null;
 
 function element(tag, text, className) {
   const node = document.createElement(tag);
@@ -30,6 +31,20 @@ function showError(error) {
   $("page-error").focus();
 }
 function setStatus(text) { $("work-status").textContent = text; }
+function setPendingImport(value) {
+  pendingImport = value;
+  $("compare-button").disabled = Boolean(value) || !index;
+  $("preview-button").disabled = Boolean(value);
+  $("inventory-form").setAttribute("aria-busy", String(Boolean(value)));
+}
+function importingStatus() {
+  return t("正在读取“", "Reading “") + pendingImport.name + t("”。旧报告已失效，请等待读取完成后再核对或生成预览。", "”. The previous report is invalid; wait for the read to finish before comparing or previewing.");
+}
+function blockWhileImporting() {
+  if (!pendingImport) return false;
+  setStatus(importingStatus());
+  return true;
+}
 function invalidatePreview(message = t("材料已变更，请重新生成报告预览。", "The material changed. Generate a new report preview.")) {
   reportHtml = null;
   if (downloadUrl) { URL.revokeObjectURL(downloadUrl); downloadUrl = null; }
@@ -40,6 +55,7 @@ function invalidatePreview(message = t("材料已变更，请重新生成报告�
 }
 function invalidateInput() {
   revision += 1;
+  setPendingImport(null);
   invalidatePreview();
   entries = [];
   selections = {};
@@ -82,6 +98,21 @@ function selectedKey(item) {
   return selections[item.id] || ((item.candidates || []).find(candidate => item.selected && candidate.server === item.selected.server && candidate.package === item.selected.package && candidate.registry === item.selected.registry && candidate.version === item.selected.version) || {}).key || "";
 }
 
+function writeCandidates(select, item) {
+  const candidates = item.candidates || [];
+  const empty = element("option", candidates.length ? t("请选择或确认对应记录", "Choose or confirm a matching record") : t("没有找到候选记录", "No candidate record found"));
+  empty.value = "";
+  select.replaceChildren(empty);
+  for (const candidate of candidates) {
+    const option = element("option", candidate.server + (candidate.package ? " · " + candidate.package : "") + (candidate.version ? " @ " + candidate.version : t(" · 版本未知", " · version unknown")));
+    option.value = candidate.key;
+    select.append(option);
+  }
+  const key = selectedKey(item);
+  select.value = candidates.some(candidate => candidate.key === key) ? key : "";
+  select.disabled = !candidates.length;
+}
+
 function writeItemStatus(card, item) {
   const state = card.querySelector(".state");
   state.textContent = item.label || item.state || t("状态未知", "Unknown status");
@@ -95,7 +126,7 @@ function writeItemStatus(card, item) {
     ? t("目录记录版本：", "Index record version: ") + (item.selected.version || t("未提供", "not provided")) + t("。不会自动写入实际版本输入框。", ". It will not be copied into the actual-version field.")
     : t("先确认目录记录；实际版本始终由你填写。", "Confirm the index record first. You must always provide the actual version.");
   const select = card.querySelector("select");
-  if (select) select.value = selectedKey(item);
+  if (select) writeCandidates(select, item);
   const note = card.querySelector(".evidence-note");
   if (note) note.textContent = t("本条目录证据：", "Evidence for this record: ") + (item.evidence || []).length + t(" 个证据块 · 证据生成时间：", " blocks · generated: ") + (item.evidenceGeneratedAt || t("未提供", "not provided")) + t("。来源、检查范围和内容摘要会保留在报告中。", ". Sources, inspection scope, and content digests will remain in the report.");
 }
@@ -125,16 +156,6 @@ function renderItems() {
     const select = element("select");
     select.id = selectId;
     select.dataset.candidateFor = item.id;
-    const empty = element("option", item.candidates.length ? t("请选择或确认对应记录", "Choose or confirm a matching record") : t("没有找到候选记录", "No candidate record found"));
-    empty.value = "";
-    select.append(empty);
-    for (const candidate of item.candidates || []) {
-      const option = element("option", candidate.server + (candidate.package ? " · " + candidate.package : "") + (candidate.version ? " @ " + candidate.version : t(" · 版本未知", " · version unknown")));
-      option.value = candidate.key;
-      select.append(option);
-    }
-    select.value = selectedKey(item);
-    select.disabled = !item.candidates.length;
     candidates.append(candidateLabel, select);
 
     const versionArea = element("div");
@@ -162,21 +183,33 @@ function renderItems() {
   });
 }
 
-$("inventory-form").addEventListener("submit", event => {
-  event.preventDefault();
+function compareInventory() {
+  // A form submission (including Enter) must not cancel the file read by advancing revision.
+  if (blockWhileImporting()) return false;
   clearError();
   invalidateInput();
-  if (!index) { showError(new Error(t("目录尚不可用，暂时无法核对清单。", "The index is not available, so the inventory cannot be compared yet."))); return; }
+  if (!index) { showError(new Error(t("目录尚不可用，暂时无法核对清单。", "The index is not available, so the inventory cannot be compared yet."))); return false; }
   try {
     if (new TextEncoder().encode(input.value).length > MAX_BYTES) throw new Error(t("清单超过 1 MB，请减少内容后重试。", "The inventory exceeds 1 MB. Reduce it and try again."));
     entries = parseInventory(input.value, { locale: EN ? "en" : "zh" });
-    if (!entries.length) throw new Error(t("先粘贴至少一个工具名称，或选择一份清单文件。", "Paste at least one tool name or choose an inventory file first."));
+    if (!entries.length) throw new Error(t("还没有工具清单。可以先点“直接查看演示报告”，或用“帮我找到清单”了解本机发现方法。", "There is no tool inventory yet. Choose “View demo report” or “Help me find my tools” to get started."));
     rebuild();
     renderItems();
     $("results-section").hidden = false;
     setStatus(t("已核对 ", "Compared ") + entries.length + t(" 条。请确认候选和实际版本；未知项会保留在报告中。", " items. Confirm candidates and actual versions; unknown items will remain in the report."));
     $("results-heading").focus();
-  } catch (error) { report = null; showError(error); setStatus(t("未生成结果。请按提示调整清单后重试。", "No result was generated. Adjust the inventory as indicated and try again.")); }
+    return true;
+  } catch (error) { report = null; showError(error); setStatus(t("未生成结果。请按提示调整清单后重试。", "No result was generated. Adjust the inventory as indicated and try again.")); return false; }
+}
+
+$("inventory-form").addEventListener("submit", event => {
+  event.preventDefault();
+  compareInventory();
+});
+
+$("discover-button").addEventListener("click", () => {
+  $("discovery-guide").open = true;
+  $("discovery-summary").focus();
 });
 
 input.addEventListener("input", () => {
@@ -189,24 +222,51 @@ input.addEventListener("input", () => {
 fileInput.addEventListener("change", async () => {
   clearError();
   const file = fileInput.files && fileInput.files[0];
-  if (!file) return;
+  if (!file) {
+    if (pendingImport) {
+      invalidateInput();
+      setStatus(t("文件选择已取消。原清单文本仍保留，可以重新选择文件或直接粘贴。", "File selection was canceled. The previous inventory text was retained; choose another file or paste an inventory."));
+    }
+    return;
+  }
   invalidateInput();
   const thisRevision = revision;
+  const operation = { name: file.name };
+  setPendingImport(operation);
+  setStatus(importingStatus());
   try {
     if (!/\.(txt|json)$/i.test(file.name)) throw new Error(t("请选择 .txt 或 .json 清单文件。", "Choose a .txt or .json inventory file."));
     if (file.size > MAX_BYTES) throw new Error(t("文件超过 1 MB，请选择更小的清单。", "The file exceeds 1 MB. Choose a smaller inventory."));
-    const text = await file.text();
-    if (thisRevision !== revision) return;
+    let bytes;
+    try { bytes = await file.arrayBuffer(); }
+    catch { throw new Error(t("无法读取清单文件，请重新选择或直接粘贴清单。", "The inventory file could not be read. Choose it again or paste an inventory.")); }
+    if (pendingImport !== operation || thisRevision !== revision) return;
+    const options = { locale: EN ? "en" : "zh", format: /\.json$/i.test(file.name) ? "json" : "auto" };
+    const text = decodeInventoryFile(bytes, options);
+    // Validate before copying anything into the page. A raw application config is not
+    // an inventory, even when its encoding or leading fields differ from the examples.
+    parseInventory(text, options);
     input.value = text;
     demonstration = false;
     $("demo-note").hidden = true;
     setStatus(t("已在本地读取“", "Read “") + file.name + t("”。点击“核对清单”继续；文件没有上传。", "” locally. Choose “Compare inventory” to continue; the file was not uploaded."));
-  } catch (error) { if (thisRevision === revision) { showError(error); setStatus(t("文件未导入。可以重新选择，或直接粘贴清单。", "The file was not imported. Choose another file or paste the inventory.")); } }
+  } catch (error) {
+    if (pendingImport === operation && thisRevision === revision) {
+      fileInput.value = "";
+      showError(error);
+      setStatus(t("文件未导入。原清单文本仍保留，可以重新选择文件，或直接粘贴清单。", "The file was not imported. The previous inventory text was retained; choose another file or paste the inventory."));
+    }
+  } finally {
+    // An obsolete read must not unlock the controls belonging to a newer import.
+    if (pendingImport === operation) setPendingImport(null);
+  }
 });
 
 $("example-button").addEventListener("click", () => {
   clearError();
-  invalidateInput();
+  if (!index) return;
+  // Choosing a different starting path deliberately cancels an in-flight import.
+  setPendingImport(null);
   const record = index.records.find(record => record && record.server && Array.isArray(record.packages) && record.packages.some(pkg => pkg && pkg.name));
   const pkg = record && record.packages.find(pkg => pkg && pkg.name);
   input.value = JSON.stringify([
@@ -216,8 +276,7 @@ $("example-button").addEventListener("click", () => {
   demonstration = true;
   $("demo-note").hidden = false;
   fileInput.value = "";
-  setStatus(t("已填入演示清单。第一项取自当前目录，第二项用于展示未覆盖；这些不是你的安装数据。", "The demonstration inventory is ready. The first item comes from the current index and the second shows an uncovered item. Neither describes your installation."));
-  input.focus();
+  if (compareInventory()) previewReport();
 });
 
 $("reset-button").addEventListener("click", () => {
@@ -265,7 +324,8 @@ $("inventory-items").addEventListener("input", event => {
   } catch (error) { report = null; showError(error); }
 });
 
-$("preview-button").addEventListener("click", () => {
+function previewReport() {
+  if (blockWhileImporting()) return;
   clearError();
   invalidatePreview();
   try {
@@ -279,7 +339,9 @@ $("preview-button").addEventListener("click", () => {
     $("preview-heading").focus();
     setStatus(t("报告已在本地生成。请先查看未覆盖项，再决定是否下载与分享。", "The report was generated locally. Review uncovered items before downloading or sharing it."));
   } catch (error) { reportHtml = null; showError(error); }
-});
+}
+
+$("preview-button").addEventListener("click", previewReport);
 
 $("download-button").addEventListener("click", () => {
   if (!reportHtml || !report) return;

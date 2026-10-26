@@ -7,7 +7,11 @@
  */
 import { createHash } from "node:crypto"
 
-export const REQUIRED_FILES = ["package.json", "README.md", "LICENSE", "bin/agentgate.mjs", "server.json", "CHANGELOG.md", "docs/operations/upgrade.md"]
+export const REQUIRED_FILES = [
+  "package.json", "README.md", "LICENSE", "bin/agentgate.mjs", "server.json", "CHANGELOG.md", "docs/operations/upgrade.md",
+  "data/sample-index.json", "site/inventory.html", "site/en/inventory.html", "site/inventory-page.mjs", "site/favicon.svg",
+  "examples/inventory/tools.json", "packages/inventory/src/inventory.mjs", "packages/inventory/src/report.mjs",
+]
 
 /** The registry entry and the plugin must describe the same release as npm. */
 export function manifestProblems(pkg, server, plugin) {
@@ -54,6 +58,7 @@ export function packedReceiptProblems(receipt, tarballBytes, acceptanceBytes, ex
 
 /** A generated index is evidence from someone else's machine; a .env is a secret. */
 export const FORBIDDEN_PATTERNS = [
+  { pattern: /(^|\/)tools\//, why: "私有开发工具不属于客户安装包" },
   { pattern: /(^|\/)\.env($|\.)/, why: "环境文件不该进包" },
   { pattern: /smtp\.env/, why: "SMTP 凭据不该进包" },
   { pattern: /(^|\/)\.git\//, why: "git 元数据不该进包" },

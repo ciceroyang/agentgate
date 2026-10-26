@@ -1,0 +1,8 @@
+{
+  "name": "@zhiliangtech/agentgate-browser-qa",
+  "version": "0.0.0",
+  "private": true,
+  "description": "Isolated first-use browser acceptance, never shipped to customers",
+  "engines": { "node": ">=20" },
+  "devDependencies": { "playwright": "1.62.1" }
+}
