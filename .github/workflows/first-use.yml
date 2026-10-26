@@ -33,7 +33,7 @@ jobs:
         with:
           node-version: ${{ matrix.node }}
       - name: Actual platform and runtime
-        run: node -e "console.log(JSON.stringify({platform:process.platform,arch:process.arch,node:process.version}))"
+        run: node -e "console.log(JSON.stringify({platform:process.platform,arch:process.arch,node:process.version,temporary:require('os').tmpdir()}))"
       - name: Clean offline install and installed CLI acceptance
         run: |
           node -e "require('fs').mkdirSync(require('path').join(process.env.RUNNER_TEMP,'agentgate-first-use'),{recursive:true})"

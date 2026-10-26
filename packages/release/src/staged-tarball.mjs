@@ -10,8 +10,9 @@ export function withStagedTarball(bytes, install, temporaryRoot = tmpdir()) {
   const root = realpathSync(temporaryRoot)
   // Fail explicitly if even the staging root is unsuitable. Do not fall back to a
   // different drive/root or guess a decoded pathname. This is a release-tool boundary.
-  if (!/^[A-Za-z0-9._:/\\-]+$/.test(root)) {
-    throw new Error("npm tarball staging requires an ASCII temporary directory without spaces or URL metacharacters")
+  // Tilde is valid in an npm file spec and occurs in Windows short directory names.
+  if (!/^[A-Za-z0-9._~:/\\-]+$/.test(root)) {
+    throw new Error("npm tarball staging requires an ASCII temporary directory without spaces or URL metacharacters: " + JSON.stringify(root))
   }
   const directory = mkdtempSync(join(root, "agentgate-npm-stage-"))
   try {

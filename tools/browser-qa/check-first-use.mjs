@@ -218,13 +218,15 @@ require('node:module').syncBuiltinESMExports();\n`);
         throw new Error('QA service worker registration blocked');
       } });
     });
+    context.on('serviceworker', () => violations.push({ route: currentRoute, kind: 'unexpected-service-worker' }));
     context.setDefaultTimeout(10000);
     const allowedPaths = new Set(['/inventory.html', '/en/inventory.html', '/inventory-page.mjs', '/inventory.mjs', '/inventory-report.mjs', '/favicon.svg', '/favicon.ico']);
     await context.route('**/*', async route => {
       const request = route.request();
       const secretExposed = hasSecret(request.url() + JSON.stringify(request.headers()) + (request.postData() || ''));
       const url = new URL(request.url());
-      const allowed = !secretExposed && url.origin === origin && request.method() === 'GET' && allowedPaths.has(url.pathname) && !url.search;
+      const workerRequest = request.serviceWorker() !== null || request.headers()['service-worker'] !== undefined;
+      const allowed = !secretExposed && !workerRequest && url.origin === origin && request.method() === 'GET' && allowedPaths.has(url.pathname) && !url.search;
       requests.push({ route: currentRoute, allowed, method: request.method(), path: allowed ? url.pathname : '[blocked]', secretExposed });
       if (!allowed) { violations.push({ route: currentRoute, kind: secretExposed ? 'secret-in-request' : 'non-static-or-non-loopback-request' }); await route.abort(); }
       else await route.continue();
@@ -374,6 +376,7 @@ require('node:module').syncBuiltinESMExports();\n`);
       await page.close();
     }
     await check('network-console-and-source-privacy', () => {
+      assert.equal(context.serviceWorkers().length, 0, 'Unexpected service worker exists');
       assert.deepEqual(violations, []);
       assert.deepEqual(pageErrors, [], 'Browser page errors were recorded');
       assert.equal(consoleMessages.some(item => item.secretExposed), false);
